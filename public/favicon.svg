@@ -1,0 +1,19 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="18" fill="#08111A" />
+  <rect x="5.5" y="5.5" width="53" height="53" rx="12.5" stroke="url(#pulseBorder)" />
+  <circle cx="32" cy="32" r="15" stroke="#67B8E5" stroke-opacity="0.38" />
+  <circle cx="32" cy="32" r="24" stroke="#CFB26B" stroke-opacity="0.18" />
+  <path
+    d="M13 34H22.2L27.2 22L32.4 42L37.1 29.4H51"
+    stroke="#A1DDFF"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <defs>
+    <linearGradient id="pulseBorder" x1="9" y1="9" x2="55" y2="55" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#66B7E6" stop-opacity="0.9" />
+      <stop offset="1" stop-color="#CFB26B" stop-opacity="0.5" />
+    </linearGradient>
+  </defs>
+</svg>
