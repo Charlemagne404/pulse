@@ -1,30 +1,49 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, NavLink, Navigate, useParams } from 'react-router-dom'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { MetricCard } from '../components/MetricCard'
 import { ProductShell } from '../components/ProductShell'
-import {
-  projectCountryMix,
-  projectEventTable,
-  projectMetrics,
-  projectReferrers,
-  projectSeries,
-  projectTopPages,
-} from '../data/mockData'
+import { projectDirectory, projectOverviewBySlug } from '../data/content'
+import { buildSeriesForGranularity, cycleIndex, type GranularityOption } from '../lib/analytics'
+
+const granularityOptions: GranularityOption[] = ['Day', 'Week', 'Month']
 
 export function ProjectPage() {
+  const { projectSlug = 'aegis' } = useParams()
+  const project = projectDirectory.find((item) => item.slug === projectSlug)
+  const overview = projectOverviewBySlug[projectSlug]
+  const [rangeIndex, setRangeIndex] = useState(0)
+  const [granularityIndex, setGranularityIndex] = useState(0)
+
+  if (!project || !overview) {
+    return <Navigate to="/projects" replace />
+  }
+
+  const activeRange = overview.rangePresets[rangeIndex]
+  const activeGranularity = granularityOptions[granularityIndex]
+  const activeSeries = buildSeriesForGranularity(activeRange.series, activeGranularity)
+
   return (
     <ProductShell
       activeItem="projects"
-      pageTitle={<div className="page-breadcrumbs">Projects &gt; Aegis</div>}
+      pageTitle={<div className="page-breadcrumbs">Projects &gt; {project.name}</div>}
       toolbar={
         <div className="toolbar-cluster">
-          <button className="toolbar-chip">
+          <button
+            type="button"
+            className="toolbar-chip"
+            onClick={() => setRangeIndex((currentIndex) => cycleIndex(currentIndex, overview.rangePresets.length))}
+          >
             <AppIcon name="calendar" />
-            <span>May 12 - May 18, 2024</span>
+            <span>{activeRange.dates}</span>
           </button>
-          <button className="toolbar-chip compact">
-            <span>7D</span>
+          <button
+            type="button"
+            className="toolbar-chip compact"
+            onClick={() => setRangeIndex((currentIndex) => cycleIndex(currentIndex, overview.rangePresets.length))}
+          >
+            <span>{activeRange.label}</span>
           </button>
           <Link to="/docs" className="icon-button" aria-label="Open docs">
             ?
@@ -37,31 +56,33 @@ export function ProjectPage() {
           <section className="project-hero-panel">
             <div className="project-hero-title">
               <div className="project-avatar">
-                <AppIcon name="shield" />
+                <AppIcon name={project.icon} />
               </div>
               <div>
-                <h1>Aegis</h1>
-                <p>https://aegis.continental.com</p>
+                <h1>{project.name}</h1>
+                <p>{project.domain}</p>
               </div>
-              <span className="project-status">Active</span>
+              <span className="project-status">{project.status}</span>
             </div>
-            <button className="secondary-button">Project Settings</button>
+            <Link to={`/projects/${project.slug}/settings`} className="secondary-button">
+              Project Settings
+            </Link>
           </section>
 
           <nav className="project-tabs" aria-label="Project tabs">
-            <a href="#overview" className="active">
+            <NavLink to={`/projects/${project.slug}`} end>
               Overview
-            </a>
-            <a href="#pages">Pages</a>
-            <a href="#events">Events</a>
-            <a href="#conversions">Conversions</a>
-            <a href="#settings">Settings</a>
+            </NavLink>
+            <NavLink to={`/projects/${project.slug}/pages`}>Pages</NavLink>
+            <NavLink to={`/projects/${project.slug}/events`}>Events</NavLink>
+            <NavLink to={`/projects/${project.slug}/conversions`}>Conversions</NavLink>
+            <NavLink to={`/projects/${project.slug}/settings`}>Settings</NavLink>
           </nav>
         </>
       }
     >
       <section className="metric-strip five-up">
-        {projectMetrics.map((metric) => (
+        {overview.metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} compact />
         ))}
       </section>
@@ -69,23 +90,36 @@ export function ProjectPage() {
       <section className="dashboard-layout-primary">
         <section className="data-panel chart-panel">
           <div className="panel-head">
-            <h2>Visits Over Time</h2>
-            <button className="toolbar-chip compact">Day</button>
+            <div className="panel-heading-copy">
+              <h2>Visits Over Time</h2>
+              <p>
+                {activeRange.dates} · {activeGranularity}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="toolbar-chip compact"
+              onClick={() => setGranularityIndex((currentIndex) => cycleIndex(currentIndex, granularityOptions.length))}
+            >
+              {activeGranularity}
+            </button>
           </div>
-          <LineChart data={projectSeries} />
+          <LineChart data={activeSeries} />
         </section>
 
         <section className="data-panel">
           <div className="panel-head">
             <h2>Top Pages</h2>
-            <button className="panel-link">View all</button>
+            <Link to={`/projects/${project.slug}/pages`} className="panel-link">
+              View all
+            </Link>
           </div>
           <div className="mini-table-list">
-            {projectTopPages.map((row) => (
-              <div key={row.label} className="mini-table-row">
+            {overview.topPages.map((row) => (
+              <Link key={row.label} to={`/projects/${project.slug}/pages`} className="mini-table-row interactive-row">
                 <span>{row.label}</span>
                 <strong>{row.value}</strong>
-              </div>
+              </Link>
             ))}
           </div>
         </section>
@@ -95,14 +129,16 @@ export function ProjectPage() {
         <section className="data-panel">
           <div className="panel-head">
             <h2>Top Referrers</h2>
-            <button className="panel-link">View all</button>
+            <Link to="/reports/referrers" className="panel-link">
+              View all
+            </Link>
           </div>
           <div className="mini-table-list">
-            {projectReferrers.map((row) => (
-              <div key={row.label} className="mini-table-row">
+            {overview.referrers.map((row) => (
+              <Link key={row.label} to="/reports/referrers" className="mini-table-row interactive-row">
                 <span>{row.label}</span>
                 <strong>{row.value}</strong>
-              </div>
+              </Link>
             ))}
           </div>
         </section>
@@ -110,14 +146,16 @@ export function ProjectPage() {
         <section className="data-panel">
           <div className="panel-head">
             <h2>Events</h2>
-            <button className="panel-link">View all</button>
+            <Link to={`/projects/${project.slug}/events`} className="panel-link">
+              View all
+            </Link>
           </div>
           <div className="mini-table-list">
-            {projectEventTable.map((row) => (
-              <div key={row.event} className="mini-table-row">
+            {overview.eventTable.map((row) => (
+              <Link key={row.event} to={`/projects/${project.slug}/events`} className="mini-table-row interactive-row">
                 <span>{row.event}</span>
                 <strong>{row.count}</strong>
-              </div>
+              </Link>
             ))}
           </div>
         </section>
@@ -125,6 +163,9 @@ export function ProjectPage() {
         <section className="data-panel">
           <div className="panel-head">
             <h2>Top Countries</h2>
+            <Link to="/status" className="panel-link">
+              Regional context
+            </Link>
           </div>
 
           <div className="country-panel">
@@ -135,7 +176,7 @@ export function ProjectPage() {
             </svg>
 
             <div className="legend-list">
-              {projectCountryMix.map((country) => (
+              {overview.countryMix.map((country) => (
                 <div key={country.label} className="legend-row">
                   <span>{country.label}</span>
                   <strong>{country.share}</strong>

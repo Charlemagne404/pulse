@@ -15,6 +15,7 @@ type IconName =
   | 'bolt'
   | 'globe'
   | 'moon'
+  | 'sun'
 
 interface AppIconProps {
   name: IconName
@@ -138,6 +139,13 @@ export function AppIcon({ name, className = '' }: AppIconProps) {
       return (
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
           <path d="M15.5 4.5a7.6 7.6 0 1 0 4 14.1 7 7 0 1 1-4-14.1Z" />
+        </svg>
+      )
+    case 'sun':
+      return (
+        <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2" />
+          <path d="M12 2.5v2.3M12 19.2v2.3M21.5 12h-2.3M4.8 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3" />
         </svg>
       )
   }

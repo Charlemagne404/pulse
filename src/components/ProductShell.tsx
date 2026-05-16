@@ -13,11 +13,11 @@ interface ProductShellProps {
 
 const navItems = [
   { key: 'overview', to: '/dashboard', label: 'Overview', icon: 'overview' as const },
-  { key: 'projects', to: '/projects/aegis', label: 'Projects', icon: 'projects' as const },
-  { key: 'events', to: '/dashboard', label: 'Events', icon: 'events' as const },
-  { key: 'reports', to: '/dashboard', label: 'Reports', icon: 'reports' as const },
-  { key: 'alerts', to: '/dashboard', label: 'Alerts', icon: 'alerts' as const },
-  { key: 'settings', to: '/dashboard', label: 'Settings', icon: 'settings' as const },
+  { key: 'projects', to: '/projects', label: 'Projects', icon: 'projects' as const },
+  { key: 'events', to: '/events', label: 'Events', icon: 'events' as const },
+  { key: 'reports', to: '/reports', label: 'Reports', icon: 'reports' as const },
+  { key: 'alerts', to: '/alerts', label: 'Alerts', icon: 'alerts' as const },
+  { key: 'settings', to: '/settings', label: 'Settings', icon: 'settings' as const },
 ]
 
 export function ProductShell({ activeItem, pageTitle, toolbar, header, children }: ProductShellProps) {
@@ -47,10 +47,10 @@ export function ProductShell({ activeItem, pageTitle, toolbar, header, children 
               <AppIcon name="docs" />
               <span>Docs</span>
             </Link>
-            <a href="#support" className="app-nav-link subtle">
+            <Link to="/support" className="app-nav-link subtle">
               <AppIcon name="support" />
               <span>Support</span>
-            </a>
+            </Link>
           </nav>
         </aside>
 

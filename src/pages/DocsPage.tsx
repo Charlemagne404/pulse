@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom'
 import { BrandLockup } from '../components/Brand'
 import { CodeBlock } from '../components/CodeBlock'
-import { AppIcon } from '../components/Icon'
-import { docsOnThisPage, docsSidebarSections, docsSnippets } from '../data/mockData'
+import { ThemeToggleButton } from '../components/ThemeToggleButton'
+import { docsSections, docsSidebarSections } from '../data/content'
 
 function toAnchorId(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -36,59 +36,52 @@ export function DocsPage() {
             <h1>Documentation</h1>
 
             <div className="docs-toolbar-actions">
-              <div className="docs-search">
-                <AppIcon name="search" />
+              <Link to="/docs/search" className="docs-search">
                 <span>Search docs...</span>
                 <kbd>Cmd K</kbd>
-              </div>
-              <button className="icon-button" aria-label="Toggle theme">
-                <AppIcon name="moon" />
-              </button>
+              </Link>
+              <ThemeToggleButton />
             </div>
           </header>
 
           <div className="docs-content-grid">
             <main className="docs-main-content">
-              <section className="docs-prose-section" id="introduction">
-                <h2>Quick Start</h2>
-                <p>Get Continental Pulse up and running in minutes.</p>
-              </section>
+              {docsSections.map((section, index) => (
+                <section key={section.title} className="docs-prose-section" id={toAnchorId(section.title)}>
+                  <div className="docs-step-header">
+                    {index === 0 ? <h2>{section.title}</h2> : <h3>{section.title}</h3>}
+                    <p>{section.summary}</p>
+                  </div>
 
-              <section className="docs-prose-section" id="install-the-tracking-script">
-                <div className="docs-step-header">
-                  <h3>1. Install the tracking script</h3>
-                  <p>Add the following snippet to the &lt;head&gt; of your site.</p>
-                </div>
-                <CodeBlock title="script tag" code={docsSnippets.install} />
-              </section>
+                  {section.body.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
 
-              <section className="docs-prose-section" id="initialize-your-project">
-                <div className="docs-step-header">
-                  <h3>2. Initialize your project</h3>
-                  <p>Initialize the client once with your project identifier and default collection mode.</p>
-                </div>
-                <CodeBlock title="project config" code={docsSnippets.init} />
-              </section>
+                  {section.bullets ? (
+                    <ul className="content-bullet-list docs-bullet-list">
+                      {section.bullets.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
+                  ) : null}
 
-              <section className="docs-prose-section" id="track-a-custom-event">
-                <div className="docs-step-header">
-                  <h3>3. Track a custom event</h3>
-                  <p>Track important interactions when they help teams understand adoption and intent.</p>
-                </div>
-                <CodeBlock title="custom event" code={docsSnippets.event} />
-              </section>
+                  {section.code ? <CodeBlock title={section.code.title} code={section.code.code} /> : null}
+                </section>
+              ))}
 
-              <section className="docs-next-steps" id={toAnchorId("What's next?")}>
+              <section className="docs-next-steps">
                 <div>
                   <h3>What&apos;s next?</h3>
-                  <p>
-                    Continue with Tracking Pages, Consent Mode, and the Event Reference once the base installation is in
-                    place.
-                  </p>
+                  <p>Open the dashboard once the script is live, then validate project settings, events, and report destinations.</p>
                 </div>
-                <Link to="/dashboard" className="secondary-button">
-                  View Dashboard
-                </Link>
+                <div className="docs-next-step-actions">
+                  <Link to="/dashboard" className="secondary-button">
+                    View Dashboard
+                  </Link>
+                  <Link to="/support" className="secondary-button">
+                    Visit Support
+                  </Link>
+                </div>
               </section>
             </main>
 
@@ -96,31 +89,28 @@ export function DocsPage() {
               <section className="data-panel docs-rail-panel">
                 <h3>On this page</h3>
                 <nav className="docs-anchor-list">
-                  {docsOnThisPage.map((item) => (
-                    <a key={item} href={`#${toAnchorId(item)}`}>
-                      {item}
+                  {docsSections.map((section) => (
+                    <a key={section.title} href={`#${toAnchorId(section.title)}`}>
+                      {section.title}
                     </a>
                   ))}
                 </nav>
               </section>
 
               <section className="data-panel docs-rail-panel">
-                <div className="rail-card-icon">
-                  <AppIcon name="shield" />
-                </div>
                 <h3>Privacy by design</h3>
-                <p>Continental Pulse does not use cookies or fingerprinting. IP addresses are anonymized and rotated regularly.</p>
-                <a href="#privacy" className="panel-link">
+                <p>Pulse does not use cookies or fingerprinting, and the docs reflect the same privacy-first assumptions used in the product.</p>
+                <Link to="/legal/privacy" className="panel-link">
                   Learn more
-                </a>
+                </Link>
               </section>
 
               <section className="data-panel docs-rail-panel">
                 <h3>Need help?</h3>
-                <p>Check our FAQs or contact the support team.</p>
-                <a href="#support" className="panel-link">
+                <p>Check FAQs here, then use support for rollout blockers, governance checkpoints, or environment-specific issues.</p>
+                <Link to="/support" className="panel-link">
                   Visit Support
-                </a>
+                </Link>
               </section>
             </aside>
           </div>

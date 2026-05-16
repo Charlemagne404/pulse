@@ -8,7 +8,7 @@ export function SiteFooter() {
       <nav aria-label="Footer links">
         <Link to="/">Home</Link>
         <Link to="/dashboard">Dashboard</Link>
-        <Link to="/projects/aegis">Aegis</Link>
+        <Link to="/projects">Projects</Link>
         <Link to="/docs">Docs</Link>
       </nav>
     </footer>
