@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { BrandLockup } from './Brand'
 
 interface MarketingChromeProps {
@@ -13,6 +14,8 @@ export function MarketingChrome({
   footerTop,
   frameClassName = 'landing-frame marketing-page-frame',
 }: MarketingChromeProps) {
+  const { isAuthenticated, signIn, user } = useAuth()
+
   return (
     <div className="site-shell">
       <main className={frameClassName}>
@@ -30,11 +33,15 @@ export function MarketingChrome({
           </nav>
 
           <div className="landing-header-actions">
-            <a href="#login" className="text-link-button">
-              Log In
-            </a>
+            {isAuthenticated ? (
+              <span className="auth-session-chip">{user?.displayName || user?.email}</span>
+            ) : (
+              <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
+                Log In
+              </button>
+            )}
             <Link to="/dashboard" className="primary-button gold">
-              View Dashboard
+              {isAuthenticated ? 'Open Pulse' : 'View Dashboard'}
             </Link>
           </div>
         </header>

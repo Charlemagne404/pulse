@@ -48,7 +48,6 @@ export function ProjectPage() {
           <Link to="/docs" className="icon-button" aria-label="Open docs">
             ?
           </Link>
-          <div className="avatar-pill">AD</div>
         </div>
       }
       header={

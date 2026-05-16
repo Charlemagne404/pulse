@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { BrandLockup } from '../components/Brand'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
@@ -92,6 +93,8 @@ function TrustBadgeMark({ kind }: { kind: 'eu' | 'gdpr' }) {
 }
 
 export function HomePage() {
+  const { isAuthenticated, signIn } = useAuth()
+
   return (
     <MarketingChrome
       frameClassName="landing-frame"
@@ -141,9 +144,15 @@ export function HomePage() {
             </p>
 
             <div className="hero-actions">
-              <Link to="/dashboard" className="primary-button gold">
-                View Dashboard
-              </Link>
+              {isAuthenticated ? (
+                <Link to="/dashboard" className="primary-button gold">
+                  Open Pulse
+                </Link>
+              ) : (
+                <button type="button" className="primary-button gold" onClick={() => signIn(`${window.location.origin}/dashboard`)}>
+                  Continue with Continental ID
+                </button>
+              )}
               <Link to="/docs" className="secondary-button">
                 Read Docs
               </Link>

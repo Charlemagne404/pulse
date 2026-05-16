@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { BrandLockup } from './Brand'
 import { AppIcon } from './Icon'
 
@@ -21,6 +22,8 @@ const navItems = [
 ]
 
 export function ProductShell({ activeItem, pageTitle, toolbar, header, children }: ProductShellProps) {
+  const { signOut, user, userInitials } = useAuth()
+
   return (
     <div className="site-shell">
       <div className="app-frame">
@@ -57,7 +60,19 @@ export function ProductShell({ activeItem, pageTitle, toolbar, header, children 
         <div className="app-stage">
           <header className="app-toolbar">
             <div className="page-heading">{pageTitle}</div>
-            {toolbar ? <div className="app-toolbar-actions">{toolbar}</div> : null}
+            <div className="app-toolbar-actions">
+              {toolbar}
+              <div className="toolbar-account">
+                <div className="toolbar-account-copy">
+                  <strong>{user?.displayName || user?.email}</strong>
+                  <span>{user?.email}</span>
+                </div>
+                <div className="avatar-pill">{userInitials}</div>
+                <button type="button" className="text-link-button toolbar-signout-button" onClick={() => void signOut()}>
+                  Sign out
+                </button>
+              </div>
+            </div>
           </header>
 
           {header ? <div className="app-stage-header">{header}</div> : null}
