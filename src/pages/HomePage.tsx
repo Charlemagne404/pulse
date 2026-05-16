@@ -3,8 +3,6 @@ import { useAuth } from '../auth/useAuth'
 import { BrandLockup } from '../components/Brand'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
-import { MarketingChrome } from '../components/MarketingChrome'
-import { staticPages } from '../data/content'
 import { landingFeatureCards, landingPreviewMetrics, landingSeries } from '../data/mockData'
 
 const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
@@ -17,11 +15,6 @@ const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
 })
 
 const landingFeatureIconNames = ['shield', 'chart', 'bolt', 'lock'] as const
-const landingDestinationPages = [
-  { key: 'pricing', cta: 'See plans' },
-  { key: 'security', cta: 'Review controls' },
-  { key: 'status', cta: 'Check operations' },
-] as const
 
 function buildPreviewSparkline(points: number[]) {
   const width = 42
@@ -96,42 +89,31 @@ export function HomePage() {
   const { isAuthenticated, signIn } = useAuth()
 
   return (
-    <MarketingChrome
-      frameClassName="landing-frame"
-      footerTop={
-        <div className="landing-privacy-panel">
-          <div className="landing-footer-copy">
-            <div className="feature-icon-shell">
-              <AppIcon name="globe" className="feature-icon" />
-            </div>
-            <div>
-              <h2>Your data. Your control.</h2>
-              <p>
-                Continental Pulse is built on strict privacy principles. We collect only what&apos;s necessary and
-                never sell data. Learn more in our Privacy Policy.
-              </p>
-            </div>
-          </div>
+    <div className="site-shell">
+      <main className="landing-frame">
+        <header className="landing-header">
+          <Link to="/" className="marketing-brand-link" aria-label="Pulse home">
+            <BrandLockup />
+          </Link>
 
-          <div className="landing-footer-badges">
-            <div className="trust-badge">
-              <TrustBadgeMark kind="gdpr" />
-              <div>
-                <strong>GDPR</strong>
-                <span>Aligned</span>
-              </div>
-            </div>
-            <div className="trust-badge">
-              <TrustBadgeMark kind="eu" />
-              <div>
-                <strong>EU</strong>
-                <span>Hosted</span>
-              </div>
-            </div>
+          <nav className="landing-nav" aria-label="Primary navigation">
+            <a href="#features">Features</a>
+            <Link to="/pricing">Pricing</Link>
+            <Link to="/docs">Docs</Link>
+            <Link to="/security">Security</Link>
+            <Link to="/status">Status</Link>
+          </nav>
+
+          <div className="landing-header-actions">
+            <a href="#login" className="text-link-button">
+              Log In
+            </a>
+            <Link to="/dashboard" className="primary-button gold">
+              View Dashboard
+            </Link>
           </div>
-        </div>
-      }
-    >
+        </header>
+
         <section className="landing-hero">
           <div className="landing-hero-background" aria-hidden="true" />
 
@@ -218,30 +200,60 @@ export function HomePage() {
           ))}
         </section>
 
-        <section className="landing-destination-strip">
-          {landingDestinationPages.map((page) => {
-            const content = staticPages[page.key]
+        <footer className="landing-footer">
+          <div className="landing-privacy-panel">
+            <div className="landing-footer-copy">
+              <div className="feature-icon-shell">
+                <AppIcon name="globe" className="feature-icon" />
+              </div>
+              <div>
+                <h2>Your data. Your control.</h2>
+                <p>
+                  Continental Pulse is built on strict privacy principles. We collect only what&apos;s necessary and
+                  never sell data. Learn more in our Privacy Policy.
+                </p>
+              </div>
+            </div>
 
-            return (
-              <article key={page.key} className="data-panel landing-destination-card">
-                <span className="section-eyebrow">{content.eyebrow}</span>
-                <h2>{content.title}</h2>
-                <p>{content.description}</p>
-                <div className="landing-destination-metrics">
-                  {content.cards.slice(0, 2).map((card) => (
-                    <div key={card.label}>
-                      <strong>{card.value}</strong>
-                      <span>{card.label}</span>
-                    </div>
-                  ))}
+            <div className="landing-footer-badges">
+              <div className="trust-badge">
+                <TrustBadgeMark kind="gdpr" />
+                <div>
+                  <strong>GDPR</strong>
+                  <span>Aligned</span>
                 </div>
-                <Link to={`/${page.key}`} className="secondary-button">
-                  {page.cta}
-                </Link>
-              </article>
-            )
-          })}
-        </section>
-    </MarketingChrome>
+              </div>
+              <div className="trust-badge">
+                <TrustBadgeMark kind="eu" />
+                <div>
+                  <strong>EU</strong>
+                  <span>Hosted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="landing-footer-bottom">
+            <div className="footer-brandline">
+              <span className="footer-brandmark">Continental</span>
+              <span>&copy; 2024 Continental AG. All rights reserved.</span>
+            </div>
+
+            <nav className="footer-links" aria-label="Footer links">
+              <Link to="/legal/privacy">Privacy</Link>
+              <Link to="/legal/imprint">Imprint</Link>
+              <Link to="/legal/terms">Terms</Link>
+              <Link to="/status">Status</Link>
+            </nav>
+
+            <div className="footer-utility-icons" aria-hidden="true">
+              <span>in</span>
+              <span>gh</span>
+              <span>@</span>
+            </div>
+          </div>
+        </footer>
+      </main>
+    </div>
   )
 }
