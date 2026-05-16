@@ -33,6 +33,8 @@ export function HomePage() {
         </header>
 
         <section className="landing-hero">
+          <div className="landing-hero-background" aria-hidden="true" />
+
           <div className="landing-copy">
             <span className="section-eyebrow">Privacy-first analytics</span>
             <h1>Analytics that respect privacy. Insights that drive performance.</h1>
@@ -52,38 +54,6 @@ export function HomePage() {
           </div>
 
           <div className="landing-visual">
-            <div className="globe-stage" aria-hidden="true">
-              <svg viewBox="0 0 560 560" className="hero-globe-svg">
-                <defs>
-                  <radialGradient id="hero-globe-fill" cx="45%" cy="42%" r="58%">
-                    <stop offset="0%" stopColor="rgba(87, 124, 169, 0.42)" />
-                    <stop offset="48%" stopColor="rgba(26, 40, 60, 0.92)" />
-                    <stop offset="100%" stopColor="rgba(7, 15, 25, 1)" />
-                  </radialGradient>
-                  <radialGradient id="hero-globe-glow" cx="50%" cy="50%" r="55%">
-                    <stop offset="0%" stopColor="rgba(255, 214, 102, 0.28)" />
-                    <stop offset="100%" stopColor="rgba(255, 214, 102, 0)" />
-                  </radialGradient>
-                </defs>
-
-                <circle cx="280" cy="280" r="178" fill="url(#hero-globe-fill)" />
-                <circle cx="280" cy="280" r="226" fill="url(#hero-globe-glow)" />
-                <circle cx="280" cy="280" r="178" className="hero-globe-outline" />
-                <ellipse cx="280" cy="280" rx="178" ry="74" className="hero-globe-grid" />
-                <ellipse cx="280" cy="280" rx="178" ry="132" className="hero-globe-grid faint" />
-                <ellipse cx="280" cy="280" rx="92" ry="178" className="hero-globe-grid" />
-                <ellipse cx="280" cy="280" rx="148" ry="178" className="hero-globe-grid faint" />
-                <path d="M112 250C168 194 226 186 290 192c68 6 119 28 159 64" className="hero-orbit-line" />
-                <path d="M130 330c58-36 121-50 186-44 71 6 116 24 153 46" className="hero-orbit-line faint" />
-                <path d="M186 156c30 38 60 61 112 72 61 13 121 6 176-14" className="hero-orbit-line faint" />
-                <circle cx="214" cy="220" r="4.5" className="hero-globe-node" />
-                <circle cx="306" cy="204" r="4.5" className="hero-globe-node" />
-                <circle cx="356" cy="282" r="4.5" className="hero-globe-node" />
-                <circle cx="258" cy="332" r="4.5" className="hero-globe-node" />
-                <circle cx="198" cy="298" r="4.5" className="hero-globe-node" />
-              </svg>
-            </div>
-
             <aside className="hero-preview-window" aria-label="Pulse dashboard preview">
               <div className="hero-preview-sidebar">
                 <BrandLockup compact />
@@ -134,7 +104,7 @@ export function HomePage() {
         </section>
 
         <footer className="landing-footer">
-          <div className="landing-footer-top">
+          <div className="landing-privacy-panel">
             <div className="landing-footer-copy">
               <div className="feature-icon-shell">
                 <AppIcon name="globe" className="feature-icon" />
@@ -143,19 +113,25 @@ export function HomePage() {
                 <h2>Your data. Your control.</h2>
                 <p>
                   Continental Pulse is built on strict privacy principles. We collect only what&apos;s necessary and
-                  never sell data.
+                  never sell data. Learn more in our Privacy Policy.
                 </p>
               </div>
             </div>
 
             <div className="landing-footer-badges">
               <div className="trust-badge">
-                <strong>GDPR</strong>
-                <span>Aligned</span>
+                <span className="trust-badge-mark gdpr" aria-hidden="true" />
+                <div>
+                  <strong>GDPR</strong>
+                  <span>Aligned</span>
+                </div>
               </div>
               <div className="trust-badge">
-                <strong>EU</strong>
-                <span>Hosted</span>
+                <span className="trust-badge-mark eu" aria-hidden="true" />
+                <div>
+                  <strong>EU</strong>
+                  <span>Hosted</span>
+                </div>
               </div>
             </div>
           </div>
