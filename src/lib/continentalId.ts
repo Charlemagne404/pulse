@@ -89,6 +89,19 @@ const rememberApiBaseUrl = (value: string) => {
   }
 }
 
+export const rememberContinentalApiBaseUrl = (value: string) => {
+  const resolved = resolveTrustedApiBaseUrl(value)
+  if (!resolved) {
+    return ''
+  }
+
+  resolvedApiBaseUrl = resolved
+  apiBaseValidated = true
+  apiBaseResolutionPromise = null
+  rememberApiBaseUrl(resolved)
+  return resolved
+}
+
 const getApiBaseCandidates = () => {
   const params = new URLSearchParams(window.location.search)
   const runtimeWindow = getRuntimeWindow()

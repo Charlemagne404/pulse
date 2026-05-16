@@ -8,6 +8,7 @@ import {
   getUserInitials,
   isTrustedContinentalMessageOrigin,
   logoutContinentalSession,
+  rememberContinentalApiBaseUrl,
   refreshContinentalSession,
   stripContinentalAuthParams,
 } from '../lib/continentalId'
@@ -141,6 +142,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const refreshSessionEvent = useEffectEvent(async () => refreshSession())
+  const completePopupLoginEvent = useEffectEvent(
+    async (payload: { accessToken?: unknown; token?: unknown; apiBaseUrl?: unknown }) => {
+      const accessToken =
+        typeof payload.accessToken === 'string'
+          ? payload.accessToken
+          : typeof payload.token === 'string'
+            ? payload.token
+            : ''
+      const trimmedToken = accessToken.trim()
+      const messageApiBase = typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl : ''
+
+      if (messageApiBase) {
+        rememberContinentalApiBaseUrl(messageApiBase)
+      }
+
+      if (trimmedToken) {
+        try {
+          accessTokenRef.current = trimmedToken
+          const nextUser = await fetchContinentalUser(trimmedToken)
+          setUser(nextUser)
+          setStatus('authenticated')
+          setErrorMessage('')
+          closePopup()
+          return
+        } catch {
+          // Fall back to the refresh-cookie flow when the popup token cannot finish sign-in alone.
+        }
+      }
+
+      await refreshSession()
+    }
+  )
 
   useEffect(() => {
     stripContinentalAuthParams()
@@ -157,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      void refreshSessionEvent()
+      void completePopupLoginEvent(event.data)
     }
 
     window.addEventListener('message', handleMessage)
