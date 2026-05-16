@@ -442,16 +442,16 @@ kbd {
 
 .landing-hero-background {
   position: absolute;
-  top: 6px;
-  right: 34px;
-  width: clamp(520px, 44vw, 680px);
-  height: 316px;
+  top: -18px;
+  right: -18px;
+  width: clamp(620px, 50vw, 860px);
+  height: 386px;
   background:
-    radial-gradient(circle at 34% 58%, rgba(211, 163, 65, 0.2), rgba(211, 163, 65, 0.12) 22%, rgba(211, 163, 65, 0.03) 48%, transparent 72%),
-    url('/landing/hero-earth-network.png') 58% 53% / 720px auto no-repeat;
-  filter: saturate(0.86) brightness(0.8);
-  opacity: 0.92;
-  mask-image: radial-gradient(circle at 51% 54%, black 0 42%, rgba(0, 0, 0, 0.86) 62%, transparent 82%);
+    radial-gradient(circle at 34% 58%, rgba(211, 163, 65, 0.34), rgba(211, 163, 65, 0.16) 24%, rgba(211, 163, 65, 0.05) 46%, transparent 70%),
+    url('/landing/hero-earth-network.png') 54% 46% / 860px auto no-repeat;
+  filter: saturate(1.05) brightness(1.08) contrast(1.04);
+  opacity: 0.98;
+  mask-image: radial-gradient(circle at 57% 50%, black 0 56%, rgba(0, 0, 0, 0.96) 72%, transparent 92%);
   pointer-events: none;
   z-index: -1;
 }
@@ -459,11 +459,11 @@ kbd {
 .landing-hero-background::before {
   content: '';
   position: absolute;
-  inset: 56px 196px 54px 104px;
+  inset: 42px 204px 40px 88px;
   border-radius: 999px;
   background:
-    radial-gradient(circle, rgba(211, 163, 65, 0.24), rgba(211, 163, 65, 0.12) 40%, rgba(211, 163, 65, 0) 74%);
-  filter: blur(18px);
+    radial-gradient(circle, rgba(211, 163, 65, 0.34), rgba(211, 163, 65, 0.14) 42%, rgba(211, 163, 65, 0) 76%);
+  filter: blur(24px);
 }
 
 .landing-copy {
@@ -723,23 +723,23 @@ kbd {
 }
 
 .landing-feature-card {
-  min-height: 94px;
-  padding: 12px 14px;
+  min-height: 108px;
+  padding: 14px 16px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
 }
 
 .landing-feature-card > div:last-child {
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
 .landing-feature-card h2,
 .panel-head h2,
 .docs-right-rail h3 {
-  font-size: 0.92rem;
+  font-size: 0.96rem;
 }
 
 .landing-feature-card p,
@@ -751,7 +751,7 @@ kbd {
 .docs-next-steps p,
 .docs-rail-panel p {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
@@ -767,6 +767,8 @@ kbd {
   border: 1px solid rgba(211, 163, 65, 0.22);
   background: rgba(211, 163, 65, 0.08);
   color: var(--gold);
+  position: relative;
+  overflow: hidden;
 }
 
 .feature-icon,
@@ -778,17 +780,57 @@ kbd {
 
 .landing-feature-card .feature-icon-shell,
 .landing-footer-copy .feature-icon-shell {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border-color: rgba(211, 163, 65, 0.18);
-  background: rgba(211, 163, 65, 0.06);
+  border-color: rgba(211, 163, 65, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0)),
+    rgba(211, 163, 65, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 24px rgba(7, 12, 20, 0.24);
+}
+
+.landing-feature-card .feature-icon-shell {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.landing-feature-card .feature-icon-shell::before,
+.landing-footer-copy .feature-icon-shell::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 32%, rgba(211, 163, 65, 0.22), transparent 72%);
+  pointer-events: none;
+}
+
+.landing-footer-copy .feature-icon-shell {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
 
 .landing-feature-card .feature-icon,
 .landing-footer-copy .feature-icon {
-  width: 14px;
-  height: 14px;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 10px rgba(211, 163, 65, 0.18));
+}
+
+.landing-feature-card .feature-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.landing-feature-card .feature-icon *,
+.landing-footer-copy .feature-icon * {
+  stroke-width: 2.05;
+}
+
+.landing-footer-copy .feature-icon {
+  width: 22px;
+  height: 22px;
 }
 
 .landing-footer {
@@ -1511,15 +1553,15 @@ tbody td {
   }
 
   .landing-hero-background {
-    top: 68px;
+    top: 54px;
     right: 50%;
-    width: min(720px, 118vw);
-    height: 340px;
+    width: min(820px, 124vw);
+    height: 390px;
     transform: translateX(50%);
-    background-position: 62% 46%;
-    background-size: 820px auto;
-    opacity: 0.78;
-    mask-image: radial-gradient(circle at 54% 52%, black 0 44%, rgba(0, 0, 0, 0.84) 64%, transparent 84%);
+    background-position: 56% 44%;
+    background-size: 920px auto;
+    opacity: 0.9;
+    mask-image: radial-gradient(circle at 56% 50%, black 0 50%, rgba(0, 0, 0, 0.92) 70%, transparent 90%);
   }
 
   .landing-visual {
@@ -1626,14 +1668,15 @@ tbody td {
   }
 
   .landing-hero-background {
-    top: 164px;
+    top: 304px;
     right: 50%;
-    width: min(680px, 150vw);
+    width: min(720px, 160vw);
     height: 280px;
     transform: translateX(50%);
-    background-position: 66% 42%;
-    background-size: 740px auto;
-    opacity: 0.62;
+    background-position: 56% 46%;
+    background-size: 760px auto;
+    opacity: 0.66;
+    mask-image: radial-gradient(circle at 56% 58%, black 0 42%, rgba(0, 0, 0, 0.84) 64%, transparent 84%);
   }
 
   .landing-copy h1 {

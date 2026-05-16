@@ -97,8 +97,8 @@ export function AppIcon({ name, className = '' }: AppIconProps) {
     case 'shield':
       return (
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
-          <path d="M12 3.5 5.5 6v5.7c0 3.9 2.7 7.5 6.5 8.8 3.8-1.3 6.5-4.9 6.5-8.8V6L12 3.5Z" />
-          <path d="m9.5 12 1.7 1.7 3.5-3.8" />
+          <path d="M12 3.5 5.5 6.3v5.4c0 4 2.7 7.6 6.5 8.8 3.8-1.2 6.5-4.8 6.5-8.8V6.3L12 3.5Z" />
+          <path d="m9.3 12.1 1.9 1.9 3.8-4.1" />
         </svg>
       )
     case 'lock':
@@ -106,20 +106,25 @@ export function AppIcon({ name, className = '' }: AppIconProps) {
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
           <rect x="6" y="10" width="12" height="9" rx="2.5" />
           <path d="M8.5 10V8a3.5 3.5 0 1 1 7 0v2" />
+          <path d="M12 13v2.6" />
         </svg>
       )
     case 'chart':
       return (
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
           <path d="M5 17.5h14" />
-          <path d="m6.5 15 3-3 3 2.5 5-6" />
-          <path d="M17.5 8.5H14V5" />
+          <path d="m6.3 15.4 3-3.6 3.1 2.4 5.3-6.3" />
+          <path d="M17.7 7.9H14.1V4.4" />
+          <circle cx="6.3" cy="15.4" r="0.7" />
+          <circle cx="9.3" cy="11.8" r="0.7" />
+          <circle cx="12.4" cy="14.2" r="0.7" />
+          <circle cx="17.7" cy="7.9" r="0.7" />
         </svg>
       )
     case 'bolt':
       return (
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
-          <path d="M13.5 3.5 7 12h4.8L10.5 20.5 17 12h-4.8l1.3-8.5Z" />
+          <path d="M13.2 3.6 7.1 12h4.6l-1.2 8.4 6.4-8.4h-4.6l.9-8.4Z" />
         </svg>
       )
     case 'globe':

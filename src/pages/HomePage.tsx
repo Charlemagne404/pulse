@@ -13,6 +13,8 @@ const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
   }
 })
 
+const landingFeatureIconNames = ['shield', 'chart', 'bolt', 'lock'] as const
+
 function buildPreviewSparkline(points: number[]) {
   const width = 42
   const height = 14
@@ -179,10 +181,7 @@ export function HomePage() {
           {landingFeatureCards.map((feature, index) => (
             <article key={feature.title} className="landing-feature-card">
               <div className="feature-icon-shell">
-                <AppIcon
-                  name={(['shield', 'chart', 'bolt', 'lock'] as const)[index]}
-                  className="feature-icon"
-                />
+                <AppIcon name={landingFeatureIconNames[index]} className="feature-icon" />
               </div>
               <div>
                 <h2>{feature.title}</h2>
