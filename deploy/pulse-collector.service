@@ -9,7 +9,7 @@ Group=charlie
 WorkingDirectory=/home/charlie/pulse
 EnvironmentFile=-/etc/pulse/pulse-collector.env
 Environment=PULSE_HOST=127.0.0.1
-Environment=PULSE_PORT=8787
+Environment=PULSE_PORT=8789
 ExecStart=/usr/bin/node /home/charlie/pulse/server/dist/server.js
 Restart=on-failure
 RestartSec=3

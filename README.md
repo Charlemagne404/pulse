@@ -65,7 +65,7 @@ The installer will:
 - validate and reload Caddy
 
 The public site expects Caddy to reverse-proxy `/api/*` and `/v1/*` to the local collector on
-`127.0.0.1:8787`. Override backend settings with `/etc/pulse/pulse-collector.env`.
+`127.0.0.1:8789`. Override backend settings with `/etc/pulse/pulse-collector.env`.
 
 ## License
 

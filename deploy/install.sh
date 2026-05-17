@@ -14,6 +14,9 @@ WEB_GROUP=caddy
 SYSTEMD_SERVICE_PATH=/etc/systemd/system/pulse-collector.service
 ENV_DIR=/etc/pulse
 ENV_FILE="$ENV_DIR/pulse-collector.env"
+PULSE_HOST_DEFAULT=127.0.0.1
+PULSE_PORT_DEFAULT=8789
+PULSE_CORS_ORIGIN_DEFAULT="https://$SITE_DOMAIN"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run this script as root."
@@ -46,12 +49,41 @@ chown -R "$WEB_USER:$WEB_GROUP" "$WEB_ROOT"
 TMP_CADDYFILE=$(mktemp)
 trap 'rm -f "$TMP_CADDYFILE"' EXIT
 cp "$CADDYFILE" "$TMP_CADDYFILE"
-
-if ! grep -Fq "$SITE_DOMAIN" "$TMP_CADDYFILE"; then
-  printf '\n' >> "$TMP_CADDYFILE"
-  cat "$SITE_BLOCK_SOURCE" >> "$TMP_CADDYFILE"
-  printf '\n' >> "$TMP_CADDYFILE"
-fi
+awk -v domain="$SITE_DOMAIN" -v source="$SITE_BLOCK_SOURCE" '
+BEGIN {
+  while ((getline line < source) > 0) {
+    replacement = replacement line ORS
+  }
+  close(source)
+}
+$0 ~ "^" domain " \\{" {
+  if (!replaced) {
+    printf "%s", replacement
+    replaced = 1
+  }
+  inblock = 1
+  depth = 1
+  next
+}
+inblock {
+  opens = gsub(/\{/, "{")
+  closes = gsub(/\}/, "}")
+  depth += opens - closes
+  if (depth <= 0) {
+    inblock = 0
+  }
+  next
+}
+{
+  print
+}
+END {
+  if (!replaced) {
+    printf ORS "%s", replacement
+  }
+}
+' "$TMP_CADDYFILE" > "$TMP_CADDYFILE.next"
+mv "$TMP_CADDYFILE.next" "$TMP_CADDYFILE"
 
 caddy validate --config "$TMP_CADDYFILE" --adapter caddyfile
 install -m 0644 "$TMP_CADDYFILE" "$CADDYFILE"
@@ -59,12 +91,26 @@ install -m 0644 "$TMP_CADDYFILE" "$CADDYFILE"
 install -d -m 0755 "$ENV_DIR"
 if [[ ! -f "$ENV_FILE" ]]; then
   cat > "$ENV_FILE" <<EOF
-PULSE_HOST=127.0.0.1
-PULSE_PORT=8787
-PULSE_CORS_ORIGIN=https://$SITE_DOMAIN
+PULSE_HOST=$PULSE_HOST_DEFAULT
+PULSE_PORT=$PULSE_PORT_DEFAULT
+PULSE_CORS_ORIGIN=$PULSE_CORS_ORIGIN_DEFAULT
 EOF
-  chmod 0644 "$ENV_FILE"
+else
+  if ! grep -q '^PULSE_HOST=' "$ENV_FILE"; then
+    printf 'PULSE_HOST=%s\n' "$PULSE_HOST_DEFAULT" >> "$ENV_FILE"
+  fi
+
+  if ! grep -q '^PULSE_PORT=' "$ENV_FILE"; then
+    printf 'PULSE_PORT=%s\n' "$PULSE_PORT_DEFAULT" >> "$ENV_FILE"
+  elif grep -q '^PULSE_PORT=8787$' "$ENV_FILE"; then
+    sed -i "s/^PULSE_PORT=8787$/PULSE_PORT=$PULSE_PORT_DEFAULT/" "$ENV_FILE"
+  fi
+
+  if ! grep -q '^PULSE_CORS_ORIGIN=' "$ENV_FILE"; then
+    printf 'PULSE_CORS_ORIGIN=%s\n' "$PULSE_CORS_ORIGIN_DEFAULT" >> "$ENV_FILE"
+  fi
 fi
+chmod 0644 "$ENV_FILE"
 
 install -m 0644 "$SERVICE_SOURCE" "$SYSTEMD_SERVICE_PATH"
 systemctl daemon-reload

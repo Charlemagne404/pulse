@@ -1,11 +1,4 @@
 pulse.continental-hub.com {
-	@pulse_api path /api/* /v1/*
-	handle @pulse_api {
-		reverse_proxy 127.0.0.1:8787
-	}
-
-	root * /var/www/pulse
-	try_files {path} /index.html
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
@@ -13,7 +6,15 @@ pulse.continental-hub.com {
 		Permissions-Policy "camera=(), geolocation=(), microphone=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://auth.continental-hub.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; upgrade-insecure-requests"
 	}
-	file_server
+
+	route {
+		reverse_proxy /api/* 127.0.0.1:8789
+		reverse_proxy /v1/* 127.0.0.1:8789
+
+		root * /var/www/pulse
+		try_files {path} /index.html
+		file_server
+	}
 }

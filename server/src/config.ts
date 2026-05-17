@@ -83,7 +83,7 @@ export const loadConfig = (): CollectorConfig => {
 
   return {
     host: process.env.PULSE_HOST || '127.0.0.1',
-    port: parseInteger(process.env.PULSE_PORT, 8787),
+    port: parseInteger(process.env.PULSE_PORT, 8789),
     corsOrigin: process.env.PULSE_CORS_ORIGIN || '*',
     maxBatchSize: parseInteger(process.env.PULSE_MAX_BATCH_SIZE, 25),
     maxBodyBytes: parseInteger(process.env.PULSE_MAX_BODY_BYTES, 262_144),
