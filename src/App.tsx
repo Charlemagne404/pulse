@@ -48,7 +48,8 @@ export default function App() {
           <Route path="/security" element={<Navigate to="/privacy" replace />} />
           <Route path="/privacy" element={<StaticPage content={staticPages.privacy} />} />
           <Route path="/status" element={<ExternalRedirect href={STATUS_URL} />} />
-          <Route path="/support" element={<StaticPage content={staticPages.support} />} />
+          <Route path="/help" element={<StaticPage content={staticPages.help} />} />
+          <Route path="/support" element={<Navigate to="/help" replace />} />
           <Route path="/legal/privacy" element={<StaticPage content={staticPages.privacy} />} />
           <Route path="/legal/imprint" element={<StaticPage content={staticPages.imprint} />} />
           <Route path="/legal/terms" element={<StaticPage content={staticPages.terms} />} />

@@ -241,7 +241,7 @@ export function DocsPage() {
                 <span>Search docs...</span>
                 <kbd>Cmd K</kbd>
               </Link>
-              <Link to="/support" className="secondary-button">
+              <Link to="/help" className="secondary-button">
                 Help
               </Link>
               <ThemeToggleButton />
@@ -402,8 +402,8 @@ export function DocsPage() {
                 <div className="docs-library-header">
                   <div>
                     <span className="docs-inline-label">Resources</span>
-                    <h2>Governance, FAQs, and updates</h2>
-                    <p>Use these pages to answer common setup questions and keep privacy assumptions visible as the implementation evolves.</p>
+                    <h2>Resources, FAQs, and updates</h2>
+                    <p>Use these pages to answer common setup questions and keep privacy and measurement limits visible as the implementation evolves.</p>
                   </div>
                   <a href="#privacy" className="panel-link">
                     Review privacy notes
@@ -427,7 +427,7 @@ export function DocsPage() {
                   <Link to="/dashboard" className="secondary-button">
                     View Dashboard
                   </Link>
-                  <Link to="/support" className="secondary-button">
+                  <Link to="/help" className="secondary-button">
                     Open Help
                   </Link>
                 </div>
@@ -472,7 +472,7 @@ export function DocsPage() {
               <section className="data-panel docs-rail-panel">
                 <h3>Need another check?</h3>
                 <p>Use the help page for self-serve troubleshooting, privacy checks, and validation tips.</p>
-                <Link to="/support" className="panel-link">
+                <Link to="/help" className="panel-link">
                   Open Help
                 </Link>
               </section>

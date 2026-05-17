@@ -9,8 +9,8 @@ export function SettingsPage() {
       pageTitle={<h1>Settings</h1>}
       toolbar={
         <div className="toolbar-cluster">
-          <Link to="/support" className="secondary-button">
-            Governance Help
+          <Link to="/help" className="secondary-button">
+            Setup Help
           </Link>
         </div>
       }
@@ -18,7 +18,7 @@ export function SettingsPage() {
       <section className="data-panel page-intro-panel">
         <div>
           <h2>Workspace controls</h2>
-          <p>Review access, collection defaults, and export governance so the portfolio stays consistent as more projects come online.</p>
+          <p>Review workspace roles, collection defaults, retention visibility, and export controls so the product stays aligned with the MVP operating model.</p>
         </div>
         <Link to="/docs" className="secondary-button">
           Setup Documentation

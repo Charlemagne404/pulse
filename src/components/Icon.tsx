@@ -6,7 +6,7 @@ type IconName =
   | 'alerts'
   | 'settings'
   | 'docs'
-  | 'support'
+  | 'help'
   | 'calendar'
   | 'search'
   | 'shield'
@@ -75,7 +75,7 @@ export function AppIcon({ name, className = '' }: AppIconProps) {
           <path d="M9 11.5h6M9 14.5h6M9 17.5h4" />
         </svg>
       )
-    case 'support':
+    case 'help':
       return (
         <svg viewBox="0 0 24 24" className={classes} aria-hidden="true">
           <path d="M5 7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v6A2.5 2.5 0 0 1 16.5 16H11l-3.5 3V16H7.5A2.5 2.5 0 0 1 5 13.5v-6Z" />

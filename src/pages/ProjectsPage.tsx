@@ -32,8 +32,8 @@ export function ProjectsPage() {
 
             <div className="project-directory-meta">
               <div>
-                <span>Team</span>
-                <strong>{project.team}</strong>
+                <span>Owner</span>
+                <strong>{project.owner}</strong>
               </div>
               <div>
                 <span>Region</span>

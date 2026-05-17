@@ -40,7 +40,7 @@ export function AlertsPage() {
       <section className="data-panel">
         <div className="panel-head">
           <h2>Recent alert activity</h2>
-          <Link to="/support" className="panel-link">
+          <Link to="/help" className="panel-link">
             Troubleshooting
           </Link>
         </div>

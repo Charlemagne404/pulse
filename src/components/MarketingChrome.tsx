@@ -62,7 +62,7 @@ export function MarketingChrome({
               <Link to="/legal/imprint">Imprint</Link>
               <Link to="/legal/terms">Terms</Link>
               <a href={STATUS_URL}>Status</a>
-              <Link to="/support">Help</Link>
+              <Link to="/help">Help</Link>
             </nav>
 
             <div className="footer-utility-icons" aria-hidden="true">

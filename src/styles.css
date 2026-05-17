@@ -463,6 +463,27 @@ kbd {
   min-width: 54px;
 }
 
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(53, 197, 133, 0.2);
+  border-radius: 999px;
+  background: rgba(53, 197, 133, 0.1);
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-chip.refreshing {
+  border-color: rgba(211, 163, 65, 0.24);
+  background: rgba(211, 163, 65, 0.1);
+  color: var(--gold);
+}
+
 .app-toolbar-actions {
   display: flex;
   align-items: center;
@@ -1475,6 +1496,38 @@ thead th,
   gap: 14px;
 }
 
+.data-state-card {
+  align-items: start;
+  border: 1px solid var(--line);
+}
+
+.data-state-card.warning {
+  border-color: rgba(211, 163, 65, 0.24);
+  background: linear-gradient(180deg, rgba(211, 163, 65, 0.08), rgba(211, 163, 65, 0.03));
+}
+
+.data-state-card.error {
+  border-color: rgba(232, 107, 107, 0.28);
+  background: linear-gradient(180deg, rgba(232, 107, 107, 0.08), rgba(232, 107, 107, 0.03));
+}
+
+.data-state-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.data-state-copy p,
+.empty-list-copy,
+.page-meta-line {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.data-state-action {
+  display: inline-flex;
+}
+
 .panel-head h2 {
   font-size: 0.98rem;
 }
@@ -1516,6 +1569,10 @@ thead th,
   background: rgba(53, 135, 255, 0.08);
   color: var(--text);
   transform: translateY(-1px);
+}
+
+.empty-list-copy {
+  margin: 0;
 }
 
 .dashboard-layout-primary {

@@ -177,7 +177,7 @@ export const projectEventTable = [
   { event: 'page_view', count: '1.28M' },
   { event: 'button_click', count: '83K' },
   { event: 'form_submit', count: '6.2K' },
-  { event: 'download', count: '4.1K' },
+  { event: 'file_download', count: '4.1K' },
   { event: 'video_play', count: '2.7K' },
 ]
 

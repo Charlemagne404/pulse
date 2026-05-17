@@ -104,13 +104,13 @@ export const staticPages: Record<string, StaticPageContent> = {
       {
         title: 'Maintenance policy',
         body: 'Planned changes are announced ahead of time and scheduled outside the primary reporting windows used by regional product teams.',
-        bullets: ['Advance notice in support and status feeds', 'Post-maintenance validation run', 'Rollback plan for every release window'],
+        bullets: ['Advance notice in help docs and status updates', 'Post-maintenance validation run', 'Rollback plan for every release window'],
       },
     ],
     primaryAction: { label: 'Read Docs', to: '/docs' },
     secondaryAction: { label: 'Open Dashboard', to: '/dashboard' },
   },
-  support: {
+  help: {
     eyebrow: 'Help',
     title: 'Self-serve setup, validation, and troubleshooting.',
     description:
@@ -197,7 +197,7 @@ export const staticPages: Record<string, StaticPageContent> = {
       },
     ],
     primaryAction: { label: 'Review Docs', to: '/docs' },
-    secondaryAction: { label: 'Open Help', to: '/support' },
+    secondaryAction: { label: 'Open Help', to: '/help' },
   },
 }
 
@@ -347,13 +347,13 @@ pulse.init({
     title: 'API Reference',
     summary: 'Understand the core browser methods available in the client.',
     body: [
-      'The primary browser methods are init, page, identify, and track. Most projects only need init, page, and track to support everyday reporting.',
-      'Treat identify as optional and only enable it if the privacy review for the project explicitly allows the chosen identifier strategy.',
+      'The primary browser methods in the MVP path are init, page, and track. Those three calls cover the standard setup used across the product docs.',
+      'Identify is intentionally out of the standard MVP setup path so the client stays focused on anonymous first-party measurement.',
     ],
     code: {
       title: 'browser API',
       code: String.raw`pulse.page({ path: '/privacy', title: 'Privacy' });
-pulse.track('download', { asset: 'product-sheet' });`,
+pulse.track('file_download', { asset: 'product_sheet' });`,
     },
   },
   {
@@ -387,9 +387,9 @@ pulse.track('download', { asset: 'product-sheet' });`,
     summary: 'See the privacy-by-design principles behind Pulse collection.',
     body: [
       'Pulse is intentionally narrow in what it collects. Review event payloads for data minimization and avoid adding unnecessary business or personal detail.',
-      'If a project needs a stricter privacy posture, configure the collection plan before launch rather than trimming data after rollout.',
+      'Unique visitors are approximate, some session-based metrics only exist after granted analytics consent, and Pulse does not support person-level cross-device attribution.',
     ],
-    bullets: ['No fingerprinting', 'Cookie-free by default', 'Configurable retention and collection scope'],
+    bullets: ['Anonymous first-party measurement only', 'Unique visitors are approximate', 'Some metrics require granted analytics consent'],
   },
   {
     title: 'FAQs',
@@ -415,7 +415,7 @@ export interface ProjectSummary {
   slug: string
   name: string
   domain: string
-  team: string
+  owner: string
   region: string
   status: string
   icon: 'shield' | 'chart' | 'bolt' | 'globe'
@@ -430,7 +430,7 @@ export const projectDirectory: ProjectSummary[] = [
     slug: 'aegis',
     name: 'Aegis',
     domain: 'https://aegis.continental.com',
-    team: 'Product Security',
+    owner: 'Product Security',
     region: 'Global',
     status: 'Active',
     icon: 'shield',
@@ -443,7 +443,7 @@ export const projectDirectory: ProjectSummary[] = [
     slug: 'contitech',
     name: 'ContiTech',
     domain: 'https://contitech.continental.com',
-    team: 'Industrial Solutions',
+    owner: 'Industrial Solutions',
     region: 'EMEA',
     status: 'Active',
     icon: 'chart',
@@ -456,7 +456,7 @@ export const projectDirectory: ProjectSummary[] = [
     slug: 'vdo-fleet',
     name: 'VDO Fleet',
     domain: 'https://fleet.vdo.com',
-    team: 'Fleet Services',
+    owner: 'Fleet Services',
     region: 'Europe',
     status: 'Monitoring',
     icon: 'bolt',
@@ -469,7 +469,7 @@ export const projectDirectory: ProjectSummary[] = [
     slug: 'contitrade',
     name: 'ContiTrade',
     domain: 'https://contitrade.continental.com',
-    team: 'Retail Operations',
+    owner: 'Retail Operations',
     region: 'North America',
     status: 'Pilot',
     icon: 'globe',
@@ -543,7 +543,7 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { event: 'page_view', count: '1.28M' },
       { event: 'button_click', count: '83K' },
       { event: 'form_submit', count: '6.2K' },
-      { event: 'download', count: '4.1K' },
+      { event: 'file_download', count: '4.1K' },
       { event: 'video_play', count: '2.7K' },
     ],
     countryMix: [
@@ -836,19 +836,19 @@ export const alertRules = [
   {
     name: 'Traffic drop: Aegis hero landing',
     status: 'Active',
-    owner: 'Product Security',
+    owner: 'Aegis owner',
     trigger: 'Page views down more than 20% day-over-day',
   },
   {
     name: 'Export delay monitor',
     status: 'Watching',
-    owner: 'Platform Operations',
+    owner: 'Export owner',
     trigger: 'Weekly exports delayed more than 15 minutes',
   },
   {
     name: 'Consent mode mismatch',
     status: 'Active',
-    owner: 'Governance',
+    owner: 'Workspace owner',
     trigger: 'Unexpected event volume after consent state changes',
   },
 ]
@@ -874,18 +874,18 @@ export const alertTimeline = [
 export const workspaceSettingsSections = [
   {
     title: 'Workspace access',
-    body: 'Control who can review reports, export data, and adjust alert or collection settings across the portfolio.',
-    bullets: ['Role-based viewer, editor, and admin access', 'Quarterly access review reminders', 'Extra review for privileged changes'],
+    body: 'Control who can view reports, manage alerts, invite members, and change retention settings across the workspace.',
+    bullets: ['Workspace-scoped viewer, editor, and owner roles', 'Owners invite members and manage retention', 'Project-level permissions are out of scope for MVP'],
   },
   {
     title: 'Collection controls',
     body: 'Review endpoint configuration, consent handling, and event naming rules before expanding project coverage.',
-    bullets: ['Project-level collection configuration', 'Consent mode guidance', 'Event allowlist governance'],
+    bullets: ['Project-level collection settings', 'Consent mode guidance', 'Event allowlists by project'],
   },
   {
-    title: 'Export governance',
-    body: 'Keep downstream reporting clean by defining how scheduled reports and manual exports are approved and distributed.',
-    bullets: ['Scheduled report ownership', 'Shared export recipients', 'Download review expectations'],
+    title: 'Export controls',
+    body: 'Define who owns scheduled exports, who can trigger manual downloads, and how failures surface inside the product.',
+    bullets: ['Editors and owners can trigger CSV exports', 'Owners manage scheduled PDF exports', 'Export failures raise in-app alerts'],
   },
 ]
 

@@ -24,6 +24,13 @@ const monthDayFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 })
 
+export interface AnalyticsRangePreset {
+  label: string
+  dates: string
+  from: string
+  to: string
+}
+
 function getTodayUtc() {
   const now = new Date()
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -46,6 +53,10 @@ function startOfQuarter(date: Date) {
 
 function formatRange(start: Date, end: Date) {
   return `${shortDayFormatter.format(start)} - ${shortDayWithYearFormatter.format(end)}`
+}
+
+function endOfUtcDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999))
 }
 
 function relabelSeriesWithOffsets(source: SeriesPoint[], offsets: number[], referenceDate = getTodayUtc()) {
@@ -95,6 +106,35 @@ export function buildDemoRangePresets(config: {
       label: 'QTD',
       dates: formatRange(quarterStart, today),
       series: relabelQuarterSeries(config.quarterToDateSeries, today),
+    },
+  ]
+}
+
+export function buildAnalyticsRangePresets(referenceDate = new Date()): AnalyticsRangePreset[] {
+  const todayStart = new Date(
+    Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), referenceDate.getUTCDate()),
+  )
+  const todayEnd = endOfUtcDay(referenceDate)
+  const quarterStart = startOfQuarter(todayStart)
+
+  return [
+    {
+      label: '7D',
+      dates: formatRange(shiftUtcDays(todayStart, -6), todayStart),
+      from: shiftUtcDays(todayStart, -6).toISOString(),
+      to: todayEnd.toISOString(),
+    },
+    {
+      label: '30D',
+      dates: formatRange(shiftUtcDays(todayStart, -29), todayStart),
+      from: shiftUtcDays(todayStart, -29).toISOString(),
+      to: todayEnd.toISOString(),
+    },
+    {
+      label: 'QTD',
+      dates: formatRange(quarterStart, todayStart),
+      from: quarterStart.toISOString(),
+      to: todayEnd.toISOString(),
     },
   ]
 }

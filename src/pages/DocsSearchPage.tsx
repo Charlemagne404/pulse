@@ -125,7 +125,7 @@ export function DocsSearchPage() {
               <section className="data-panel docs-rail-panel">
                 <h3>Need another check?</h3>
                 <p>Use the help page for self-serve troubleshooting, privacy checks, and setup validation.</p>
-                <Link to="/support" className="panel-link">
+                <Link to="/help" className="panel-link">
                   Open Help
                 </Link>
               </section>

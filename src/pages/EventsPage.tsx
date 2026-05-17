@@ -21,7 +21,7 @@ export function EventsPage() {
           <h2>Workspace event catalog</h2>
           <p>Review the standard events used across projects, then compare them against the most recent activity flowing into the workspace.</p>
         </div>
-        <Link to="/support" className="secondary-button">
+        <Link to="/help" className="secondary-button">
           Open Help
         </Link>
       </section>

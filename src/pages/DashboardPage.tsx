@@ -1,52 +1,56 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { DataStateCard } from '../components/DataStateCard'
 import { DonutChart } from '../components/DonutChart'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { MetricCard } from '../components/MetricCard'
 import { ProductShell } from '../components/ProductShell'
-import { projectDirectory } from '../data/content'
+import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
+import { cycleIndex, type GranularityOption } from '../lib/analytics'
+import type { AnalyticsGranularity } from '../lib/analyticsApi'
+import { fetchOverviewAnalytics } from '../lib/analyticsApi'
 import {
-  dashboardBrowserMix,
-  dashboardDeviceMix,
-  dashboardMetrics,
-  dashboardReferrers,
-  dashboardSeries,
-  dashboardTopPages,
-  dashboardTopProjects,
-  recentEvents,
-} from '../data/mockData'
-import { buildSeriesForGranularity, cycleIndex, type GranularityOption } from '../lib/analytics'
-import { buildDemoRangePresets } from '../lib/demoDates'
-
-const dashboardRangePresets = buildDemoRangePresets({
-  sevenDaySeries: dashboardSeries,
-  thirtyDaySeries: [
-    { label: 'Apr 19', value: 44000 },
-    { label: 'Apr 24', value: 63000 },
-    { label: 'Apr 29', value: 76000 },
-    { label: 'May 04', value: 81000 },
-    { label: 'May 09', value: 95000 },
-    { label: 'May 14', value: 112000 },
-    { label: 'May 18', value: 149000 },
-  ],
-  quarterToDateSeries: [
-    { label: 'Mar', value: 278000 },
-    { label: 'Late Mar', value: 342000 },
-    { label: 'Apr', value: 405000 },
-    { label: 'Late Apr', value: 462000 },
-    { label: 'May', value: 521000 },
-  ],
-})
+  buildDeviceSegments,
+  buildMetricCards,
+  formatBreakdownShare,
+  formatCount,
+  formatDeviceLabel,
+  formatRecentEventTime,
+  getProjectName,
+  getProjectSlug,
+} from '../lib/analyticsUi'
+import { buildAnalyticsRangePresets } from '../lib/demoDates'
 
 const granularityOptions: GranularityOption[] = ['Day', 'Week', 'Month']
+const granularityByOption: Record<GranularityOption, AnalyticsGranularity> = {
+  Day: 'day',
+  Week: 'week',
+  Month: 'month',
+}
+const dashboardRangePresets = buildAnalyticsRangePresets()
 
 export function DashboardPage() {
   const [rangeIndex, setRangeIndex] = useState(0)
   const [granularityIndex, setGranularityIndex] = useState(0)
-  const activeRange = dashboardRangePresets[rangeIndex]
+  const activeRange = dashboardRangePresets[rangeIndex] ?? dashboardRangePresets[0]
   const activeGranularity = granularityOptions[granularityIndex]
-  const activeSeries = buildSeriesForGranularity(activeRange.series, activeGranularity)
+  const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
+    `overview:${activeRange.label}:${activeGranularity}`,
+    (signal) =>
+      fetchOverviewAnalytics(
+        {
+          from: activeRange.from,
+          to: activeRange.to,
+          granularity: granularityByOption[activeGranularity],
+        },
+        signal,
+      ),
+  )
+
+  const metricCards = data ? buildMetricCards(data.metrics) : []
+  const deviceSegments = data ? buildDeviceSegments(data.deviceMix) : []
+  const hasData = Boolean(data && data.totals.acceptedEvents > 0)
 
   return (
     <ProductShell
@@ -69,179 +73,249 @@ export function DashboardPage() {
           >
             <span>{activeRange.label}</span>
           </button>
+          <span className={`status-chip${isRefreshing ? ' refreshing' : ''}`}>
+            {isRefreshing ? 'Refreshing live data' : 'Live data'}
+          </span>
         </div>
       }
     >
-      <section className="metric-strip five-up">
-        {dashboardMetrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} compact />
-        ))}
-      </section>
+      {error && data ? (
+        <DataStateCard
+          title="Live refresh interrupted"
+          message={`${error} The dashboard is still showing the last successful response.`}
+          tone="warning"
+        />
+      ) : null}
 
-      <section className="dashboard-layout-primary">
-        <section className="data-panel chart-panel">
-          <div className="panel-head">
-            <div className="panel-heading-copy">
-              <h2>Visits Over Time</h2>
-              <p>
-                {activeRange.dates} · {activeGranularity}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="toolbar-chip compact"
-              onClick={() => setGranularityIndex((currentIndex) => cycleIndex(currentIndex, granularityOptions.length))}
-            >
-              {activeGranularity}
-            </button>
-          </div>
-          <LineChart data={activeSeries} />
-        </section>
+      {isLoading && !data ? (
+        <DataStateCard
+          title="Loading live analytics"
+          message="Pulse is requesting the current overview from the analytics API."
+        />
+      ) : null}
 
-        <section className="data-panel">
-          <div className="panel-head">
-            <h2>Top Projects</h2>
-            <Link to="/projects" className="panel-link">
-              View all
+      {!isLoading && error && !data ? (
+        <DataStateCard
+          title="Could not load the dashboard"
+          message={error}
+          tone="error"
+          action={
+            <Link to="/docs" className="secondary-button">
+              Open Docs
             </Link>
-          </div>
+          }
+        />
+      ) : null}
 
-          <div className="project-ranking-list">
-            {dashboardTopProjects.map((project) => (
-              <Link
-                key={project.name}
-                to={`/projects/${projectDirectory.find((item) => item.name === project.name)?.slug ?? 'aegis'}`}
-                className="project-ranking-row interactive-row"
-              >
-                <div className="project-ranking-head">
-                  <strong>{project.name}</strong>
-                  <span>{project.pageViews}</span>
+      {!isLoading && !error && data && !hasData ? (
+        <DataStateCard
+          title="No analytics yet"
+          message="The backend is reachable, but there are no accepted events in this dashboard range yet."
+        />
+      ) : null}
+
+      {data && hasData ? (
+        <>
+          <section className="metric-strip five-up">
+            {metricCards.map((metric) => (
+              <MetricCard key={metric.label} {...metric} compact />
+            ))}
+          </section>
+
+          <section className="dashboard-layout-primary">
+            <section className="data-panel chart-panel">
+              <div className="panel-head">
+                <div className="panel-heading-copy">
+                  <h2>Visits Over Time</h2>
+                  <p>
+                    {activeRange.dates} · {activeGranularity}
+                  </p>
                 </div>
-                <div className="project-ranking-meta">
-                  <span>{project.uniqueVisitors}</span>
-                  <div className="mini-progress">
-                    <div style={{ width: `${project.share}%` }} />
+                <button
+                  type="button"
+                  className="toolbar-chip compact"
+                  onClick={() => setGranularityIndex((currentIndex) => cycleIndex(currentIndex, granularityOptions.length))}
+                >
+                  {activeGranularity}
+                </button>
+              </div>
+              {data.series.length > 0 ? (
+                <LineChart data={data.series} />
+              ) : (
+                <p className="empty-list-copy">No page-view series is available for this range.</p>
+              )}
+            </section>
+
+            <section className="data-panel">
+              <div className="panel-head">
+                <h2>Top Projects</h2>
+                <Link to="/projects" className="panel-link">
+                  View all
+                </Link>
+              </div>
+
+              {data.topProjects.length > 0 ? (
+                <div className="project-ranking-list">
+                  {data.topProjects.map((project) => (
+                    <Link
+                      key={project.projectId}
+                      to={`/projects/${getProjectSlug(project.projectId)}`}
+                      className="project-ranking-row interactive-row"
+                    >
+                      <div className="project-ranking-head">
+                        <strong>{project.projectName}</strong>
+                        <span>{formatCount(project.pageViews)}</span>
+                      </div>
+                      <div className="project-ranking-meta">
+                        <span>{formatCount(project.uniqueVisitors)}</span>
+                        <div className="mini-progress">
+                          <div style={{ width: `${project.share}%` }} />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-list-copy">No projects recorded page views in this range.</p>
+              )}
+            </section>
+          </section>
+
+          <section className="dashboard-layout-secondary">
+            <section className="data-panel">
+              <div className="panel-head">
+                <h2>Top Pages</h2>
+                <Link to="/reports/pages" className="panel-link">
+                  View all
+                </Link>
+              </div>
+              {data.topPages.length > 0 ? (
+                <div className="mini-table-list">
+                  {data.topPages.map((row) => (
+                    <Link key={row.label} to="/reports/pages" className="mini-table-row interactive-row">
+                      <span>{row.label}</span>
+                      <strong>{formatCount(row.value)}</strong>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-list-copy">No page views are available for this range.</p>
+              )}
+            </section>
+
+            <section className="data-panel">
+              <div className="panel-head">
+                <h2>Top Referrers</h2>
+                <Link to="/reports/referrers" className="panel-link">
+                  View all
+                </Link>
+              </div>
+              {data.topReferrers.length > 0 ? (
+                <div className="mini-table-list">
+                  {data.topReferrers.map((row) => (
+                    <Link key={row.label} to="/reports/referrers" className="mini-table-row interactive-row">
+                      <span>{row.label}</span>
+                      <strong>{formatCount(row.value)}</strong>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-list-copy">No tracked referrers are available for this range.</p>
+              )}
+            </section>
+
+            <section className="data-panel">
+              <div className="panel-head">
+                <h2>By Device</h2>
+              </div>
+              {deviceSegments.length > 0 ? (
+                <div className="device-breakdown">
+                  <DonutChart segments={deviceSegments} />
+                  <div className="legend-list">
+                    {deviceSegments.map((segment) => (
+                      <div key={segment.label} className="legend-row">
+                        <span className="legend-swatch" style={{ backgroundColor: segment.color }} />
+                        <span>{segment.label}</span>
+                        <strong>{formatBreakdownShare(segment.share)}</strong>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      </section>
+              ) : (
+                <p className="empty-list-copy">No device breakdown is available yet.</p>
+              )}
+            </section>
 
-      <section className="dashboard-layout-secondary">
-        <section className="data-panel">
-          <div className="panel-head">
-            <h2>Top Pages</h2>
-            <Link to="/reports/pages" className="panel-link">
-              View all
-            </Link>
-          </div>
-          <div className="mini-table-list">
-            {dashboardTopPages.map((row) => (
-              <Link key={row.label} to="/reports/pages" className="mini-table-row interactive-row">
-                <span>{row.label}</span>
-                <strong>{row.value}</strong>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        <section className="data-panel">
-          <div className="panel-head">
-            <h2>Top Referrers</h2>
-            <Link to="/reports/referrers" className="panel-link">
-              View all
-            </Link>
-          </div>
-          <div className="mini-table-list">
-            {dashboardReferrers.map((row) => (
-              <Link key={row.label} to="/reports/referrers" className="mini-table-row interactive-row">
-                <span>{row.label}</span>
-                <strong>{row.value}</strong>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        <section className="data-panel">
-          <div className="panel-head">
-            <h2>By Device</h2>
-          </div>
-          <div className="device-breakdown">
-            <DonutChart segments={dashboardDeviceMix} />
-            <div className="legend-list">
-              {dashboardDeviceMix.map((segment) => (
-                <div key={segment.label} className="legend-row">
-                  <span className="legend-swatch" style={{ backgroundColor: segment.color }} />
-                  <span>{segment.label}</span>
-                  <strong>{segment.share}%</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="data-panel">
-          <div className="panel-head">
-            <h2>By Browser</h2>
-          </div>
-          <div className="browser-mix-list">
-            {dashboardBrowserMix.map((row) => (
-              <div key={row.label} className="browser-mix-row">
-                <div className="browser-mix-head">
-                  <span>{row.label}</span>
-                  <strong>{row.share}%</strong>
-                </div>
-                <div className="mini-progress">
-                  <div style={{ width: `${row.share}%` }} />
-                </div>
+            <section className="data-panel">
+              <div className="panel-head">
+                <h2>By Browser</h2>
               </div>
-            ))}
-          </div>
-        </section>
-      </section>
+              {data.browserMix.length > 0 ? (
+                <div className="browser-mix-list">
+                  {data.browserMix.map((row) => (
+                    <div key={row.label} className="browser-mix-row">
+                      <div className="browser-mix-head">
+                        <span>{row.label}</span>
+                        <strong>{formatBreakdownShare(row.share)}</strong>
+                      </div>
+                      <div className="mini-progress">
+                        <div style={{ width: `${row.share || 0}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-list-copy">No browser mix is available yet.</p>
+              )}
+            </section>
+          </section>
 
-      <section className="data-panel">
-        <div className="panel-head">
-          <h2>Recent Events</h2>
-          <Link to="/events" className="panel-link">
-            View all events
-          </Link>
-        </div>
-        <div className="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Event</th>
-                <th>Project</th>
-                <th>Page / Location</th>
-                <th>Device</th>
-                <th>Browser</th>
-                <th>Country</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentEvents.map((row) => (
-                <tr key={`${row.time}-${row.project}-${row.event}`}>
-                  <td>{row.time}</td>
-                  <td>
-                    <span className="table-event-pill">{row.event}</span>
-                  </td>
-                  <td>{row.project}</td>
-                  <td>{row.location}</td>
-                  <td>{row.device}</td>
-                  <td>{row.browser}</td>
-                  <td>
-                    <span className="country-pill">{row.country}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          <section className="data-panel">
+            <div className="panel-head">
+              <h2>Recent Events</h2>
+              <Link to="/events" className="panel-link">
+                View all events
+              </Link>
+            </div>
+            {data.recentEvents.length > 0 ? (
+              <div className="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Event</th>
+                      <th>Project</th>
+                      <th>Page / Location</th>
+                      <th>Device</th>
+                      <th>Browser</th>
+                      <th>Country</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.recentEvents.map((row) => (
+                      <tr key={`${row.occurredAt}-${row.projectId}-${row.eventName}`}>
+                        <td>{formatRecentEventTime(row.occurredAt)}</td>
+                        <td>
+                          <span className="table-event-pill">{row.eventName}</span>
+                        </td>
+                        <td>{getProjectName(row.projectId)}</td>
+                        <td>{row.path}</td>
+                        <td>{formatDeviceLabel(row.deviceType)}</td>
+                        <td>{row.browserName}</td>
+                        <td>
+                          <span className="country-pill">{row.countryCode}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="empty-list-copy">No recent events were returned for this range.</p>
+            )}
+          </section>
+        </>
+      ) : null}
     </ProductShell>
   )
 }
