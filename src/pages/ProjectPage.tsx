@@ -46,9 +46,6 @@ export function ProjectPage() {
           >
             <span>{activeRange.label}</span>
           </button>
-          <Link to="/docs" className="icon-button" aria-label="Open docs">
-            ?
-          </Link>
         </div>
       }
       header={

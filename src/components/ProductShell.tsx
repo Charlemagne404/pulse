@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { BrandLockup } from './Brand'
 import { AppIcon } from './Icon'
+import { ThemeToggleButton } from './ThemeToggleButton'
 
 interface ProductShellProps {
   activeItem: 'overview' | 'projects' | 'events' | 'reports' | 'alerts' | 'settings'
@@ -23,6 +24,7 @@ const navItems = [
 
 export function ProductShell({ activeItem, pageTitle, toolbar, header, children }: ProductShellProps) {
   const { signOut, user, userInitials } = useAuth()
+  const accountLabel = user?.displayName || user?.email?.split('@')[0] || 'Account'
 
   return (
     <div className="site-shell">
@@ -61,13 +63,21 @@ export function ProductShell({ activeItem, pageTitle, toolbar, header, children 
           <header className="app-toolbar">
             <div className="page-heading">{pageTitle}</div>
             <div className="app-toolbar-actions">
-              {toolbar}
+              {toolbar ? <div className="toolbar-context-actions">{toolbar}</div> : null}
+              <div className="toolbar-utility-actions">
+                <ThemeToggleButton />
+                <Link to="/alerts" className="icon-button" aria-label="Open alerts">
+                  <AppIcon name="alerts" />
+                </Link>
+                <Link to="/docs" className="icon-button" aria-label="Open docs">
+                  <AppIcon name="docs" />
+                </Link>
+              </div>
               <div className="toolbar-account">
-                <div className="toolbar-account-copy">
-                  <strong>{user?.displayName || user?.email}</strong>
-                  <span>{user?.email}</span>
-                </div>
                 <div className="avatar-pill">{userInitials}</div>
+                <div className="toolbar-account-copy">
+                  <strong>{accountLabel}</strong>
+                </div>
                 <button type="button" className="text-link-button toolbar-signout-button" onClick={() => void signOut()}>
                   Sign out
                 </button>
