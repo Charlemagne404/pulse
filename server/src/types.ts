@@ -1,6 +1,7 @@
 export type ConsentState = 'unknown' | 'denied' | 'granted'
 export type ConsentMode = 'strict' | 'standard'
 export type DeviceType = 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown'
+export type RetentionMonths = 6 | 12 | 13
 export type Scalar = string | number | boolean | null
 
 export interface PulseEventInput {
@@ -83,7 +84,12 @@ export interface CollectorConfig {
   corsOrigin: string
   maxBatchSize: number
   maxBodyBytes: number
-  sinkPath: string
+  databasePath: string
+  legacySinkPath: string
+  rollupIntervalMs: number
+  retentionIntervalMs: number
+  defaultRetentionMonths: RetentionMonths
+  projectRetentionMonths: Map<string, RetentionMonths>
   allowedProjectIds: Set<string>
   allowedEventNames: Set<string>
 }
@@ -178,4 +184,21 @@ export interface ReferrersReportResponse {
   ownedShare: number
   searchLedVisits: number
   rows: AnalyticsBreakdownRow[]
+}
+
+export interface RecentEventsPageResponse {
+  range: AnalyticsRange
+  filters: {
+    projectId?: string
+    eventName?: string
+    deviceType?: DeviceType
+    countryCode?: string
+    pathPrefix?: string
+  }
+  rows: RecentEventRow[]
+  page: {
+    limit: number
+    nextCursor: string | null
+    hasMore: boolean
+  }
 }

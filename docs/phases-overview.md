@@ -167,7 +167,7 @@ Phases 2 and 3 prove the product behavior, but they are not efficient enough for
 
 ### Status
 
-- Planned
+- In progress
 
 ## Phase 6
 
@@ -203,19 +203,20 @@ Pulse needs more than collection and dashboard reads to become a complete produc
 
 ## Current Position
 
-Pulse is currently at the end of Phase 3.
+Pulse has moved past the Phase 3 file-backed prototype on the backend, but the overall product is not fully through Phase 5 yet.
 
 That means:
 
 - The product definition exists
 - Event collection exists
 - Basic analytics query APIs exist
-- The backend is more robust than the initial prototype
+- The backend now uses SQLite-backed raw storage instead of querying only the NDJSON sink
+- Daily rollups, retention enforcement, and recent-event pagination now exist on the server
 - The frontend is not yet fully connected to live data
 
 ## Recommended Next Move
 
-The next main product milestone is Phase 4:
+The next main product milestone is still the unfinished frontend work from Phase 4:
 
 - connect the current React UI to the live backend
 - replace mock analytics data incrementally
