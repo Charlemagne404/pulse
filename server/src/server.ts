@@ -144,6 +144,5 @@ createServer(async (request, response) => {
     message: `No route for ${method} ${url.pathname}.`,
   })
 }).listen(config.port, config.host, () => {
-  // eslint-disable-next-line no-console
   console.log(`Pulse collector listening on http://${config.host}:${config.port}`)
 })
