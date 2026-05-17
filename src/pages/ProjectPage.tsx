@@ -15,6 +15,7 @@ import {
   formatAnalyticsRangeLabel,
   formatBreakdownShare,
   formatCount,
+  formatCountryCode,
   getProjectSlug,
 } from '../lib/analyticsUi'
 import { buildAnalyticsRangePresets } from '../lib/demoDates'
@@ -267,7 +268,7 @@ export function ProjectPage() {
                   <div className="legend-list">
                     {data.countryMix.map((country) => (
                       <div key={country.label} className="legend-row">
-                        <span>{country.label}</span>
+                        <span>{formatCountryCode(country.label)}</span>
                         <strong>{formatBreakdownShare(country.share)}</strong>
                       </div>
                     ))}

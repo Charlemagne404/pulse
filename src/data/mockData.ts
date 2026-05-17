@@ -91,54 +91,6 @@ export const dashboardBrowserMix = [
   { label: 'Others', share: 4.7 },
 ]
 
-export const recentEvents = [
-  {
-    time: '10:26:31',
-    event: 'page_view',
-    project: 'Aegis',
-    location: '/solutions/aegis-overview',
-    device: 'Desktop',
-    browser: 'Chrome',
-    country: 'DE',
-  },
-  {
-    time: '10:24:18',
-    event: 'button_click',
-    project: 'Aegis',
-    location: '/privacy',
-    device: 'Mobile',
-    browser: 'Safari',
-    country: 'DE',
-  },
-  {
-    time: '10:23:05',
-    event: 'demo_opened',
-    project: 'ContiTech',
-    location: '/products/e-belt.pdf',
-    device: 'Desktop',
-    browser: 'Edge',
-    country: 'FR',
-  },
-  {
-    time: '10:21:52',
-    event: 'form_submit',
-    project: 'VDO Fleet',
-    location: '/contact',
-    device: 'Mobile',
-    browser: 'Chrome',
-    country: 'IT',
-  },
-  {
-    time: '10:21:41',
-    event: 'video_play',
-    project: 'Aegis',
-    location: '/media/product-intro',
-    device: 'Desktop',
-    browser: 'Firefox',
-    country: 'ES',
-  },
-]
-
 export const projectMetrics = [
   { label: 'Page Views', value: '1.28M', delta: '+14.2%', trend: [20, 23, 24, 22, 26, 29, 31] },
   { label: 'Unique Visitors', value: '456K', delta: '+9.1%', trend: [13, 15, 16, 14, 18, 20, 21] },

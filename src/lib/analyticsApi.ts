@@ -90,11 +90,37 @@ export interface ReferrersReportResponse {
   rows: AnalyticsBreakdownRow[]
 }
 
+export interface RecentEventsPageResponse {
+  range: AnalyticsRange
+  filters: {
+    projectId?: string
+    eventName?: string
+    deviceType?: string
+    countryCode?: string
+    pathPrefix?: string
+  }
+  rows: RecentEventRow[]
+  page: {
+    limit: number
+    hasMore: boolean
+    nextCursor: string | null
+  }
+}
+
 export interface AnalyticsQueryOptions {
   from?: string
   to?: string
   granularity?: AnalyticsGranularity
   projectId?: string
+}
+
+export interface RecentEventsQueryOptions extends AnalyticsQueryOptions {
+  eventName?: string
+  deviceType?: string
+  countryCode?: string
+  pathPrefix?: string
+  cursor?: string
+  limit?: number
 }
 
 interface ApiErrorPayload {
@@ -104,24 +130,16 @@ interface ApiErrorPayload {
 const configuredApiBase = (import.meta.env.VITE_PULSE_API_BASE_URL || '').trim().replace(/\/+$/, '')
 const JSON_CONTENT_TYPE = 'application/json'
 
-const buildRequestUrl = (path: string, options: AnalyticsQueryOptions) => {
+type RequestQueryOptions = AnalyticsQueryOptions | RecentEventsQueryOptions
+
+const buildRequestUrl = (path: string, options: RequestQueryOptions) => {
   const baseUrl = configuredApiBase || window.location.origin
   const url = new URL(path, baseUrl)
 
-  if (options.from) {
-    url.searchParams.set('from', options.from)
-  }
-
-  if (options.to) {
-    url.searchParams.set('to', options.to)
-  }
-
-  if (options.granularity) {
-    url.searchParams.set('granularity', options.granularity)
-  }
-
-  if (options.projectId) {
-    url.searchParams.set('projectId', options.projectId)
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined && value !== '') {
+      url.searchParams.set(key, String(value))
+    }
   }
 
   return url
@@ -152,7 +170,7 @@ const buildErrorMessage = async (response: Response) => {
 
 const requestJson = async <T>(
   path: string,
-  options: AnalyticsQueryOptions = {},
+  options: RequestQueryOptions = {},
   signal?: AbortSignal,
 ): Promise<T> => {
   const response = await fetch(buildRequestUrl(path, options), {
@@ -197,3 +215,6 @@ export const fetchPagesReport = (options: AnalyticsQueryOptions = {}, signal?: A
 
 export const fetchReferrersReport = (options: AnalyticsQueryOptions = {}, signal?: AbortSignal) =>
   requestJson<ReferrersReportResponse>('/v1/analytics/reports/referrers', options, signal)
+
+export const fetchRecentEventsPage = (options: RecentEventsQueryOptions = {}, signal?: AbortSignal) =>
+  requestJson<RecentEventsPageResponse>('/v1/analytics/events/recent', options, signal)

@@ -167,7 +167,7 @@ Phases 2 and 3 prove the product behavior, but they are not efficient enough for
 
 ### Status
 
-- In progress
+- Complete
 
 ## Phase 6
 
@@ -199,26 +199,23 @@ Pulse needs more than collection and dashboard reads to become a complete produc
 
 ### Status
 
-- In progress
+- Complete
 
 ## Current Position
 
-Pulse has moved past the Phase 3 file-backed prototype on the backend, but the overall product is not fully through Phase 5 yet.
+Pulse now has an end-to-end product path in place:
 
-That means:
-
-- The product definition exists
-- Event collection exists
-- Basic analytics query APIs exist
-- The backend now uses SQLite-backed raw storage instead of querying only the NDJSON sink
-- Daily rollups, retention enforcement, and recent-event pagination now exist on the server
-- The frontend now reads live analytics on the reporting, alerts, and workspace-settings surfaces
-- Phase 6 now has initial live alerts, export-pipeline visibility, workspace settings APIs, and collector rate limiting
+- The collector accepts validated events into SQLite-backed storage
+- Rollups, retention enforcement, health snapshots, and recent-event pagination run on the backend
+- The frontend reads live analytics on the dashboard, projects, events, reports, alerts, and workspace-settings surfaces
+- Alerts, export visibility, and workspace operations are exposed through stable product APIs
+- The remaining work is iterative product expansion rather than finishing the initial functional surface set
 
 ## Recommended Next Move
 
-The next main product milestone is still the unfinished frontend work from Phase 4:
+The next milestone is no longer basic frontend completion. The product can now move into follow-on work such as:
 
-- connect the current React UI to the live backend
-- replace mock analytics data incrementally
-- keep the Phase 2 and 3 APIs stable enough that the frontend can rely on them
+- richer filtering and drill-down controls on live analytics surfaces
+- authentication and authorization hardening beyond the current shell
+- real export job execution instead of visibility-only export state
+- deployment and observability improvements around the live collector

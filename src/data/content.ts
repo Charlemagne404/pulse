@@ -419,9 +419,6 @@ export interface ProjectSummary {
   region: string
   status: string
   icon: 'shield' | 'chart' | 'bolt' | 'globe'
-  pageViews: string
-  uniqueVisitors: string
-  eventVolume: string
   note: string
 }
 
@@ -434,9 +431,6 @@ export const projectDirectory: ProjectSummary[] = [
     region: 'Global',
     status: 'Active',
     icon: 'shield',
-    pageViews: '1.29M',
-    uniqueVisitors: '456K',
-    eventVolume: '83K',
     note: 'Highest growth this quarter with strong CTA performance on solution pages.',
   },
   {
@@ -447,9 +441,6 @@ export const projectDirectory: ProjectSummary[] = [
     region: 'EMEA',
     status: 'Active',
     icon: 'chart',
-    pageViews: '642K',
-    uniqueVisitors: '210K',
-    eventVolume: '41K',
     note: 'Strong returning traffic from partner campaigns and product-sheet downloads.',
   },
   {
@@ -460,9 +451,6 @@ export const projectDirectory: ProjectSummary[] = [
     region: 'Europe',
     status: 'Monitoring',
     icon: 'bolt',
-    pageViews: '312K',
-    uniqueVisitors: '104K',
-    eventVolume: '24K',
     note: 'Focused on lead quality and conversion lift across mobile support journeys.',
   },
   {
@@ -473,9 +461,6 @@ export const projectDirectory: ProjectSummary[] = [
     region: 'North America',
     status: 'Pilot',
     icon: 'globe',
-    pageViews: '158K',
-    uniqueVisitors: '57K',
-    eventVolume: '11K',
     note: 'New rollout concentrating on appointment booking and store-location engagement.',
   },
 ]

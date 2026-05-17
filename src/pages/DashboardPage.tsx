@@ -15,6 +15,7 @@ import {
   buildMetricCards,
   formatBreakdownShare,
   formatCount,
+  formatCountryCode,
   formatDeviceLabel,
   formatRecentEventTime,
   getProjectName,
@@ -303,7 +304,7 @@ export function DashboardPage() {
                         <td>{formatDeviceLabel(row.deviceType)}</td>
                         <td>{row.browserName}</td>
                         <td>
-                          <span className="country-pill">{row.countryCode}</span>
+                          <span className="country-pill">{formatCountryCode(row.countryCode)}</span>
                         </td>
                       </tr>
                     ))}

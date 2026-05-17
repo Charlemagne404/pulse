@@ -1,6 +1,6 @@
 # Continental Pulse
 
-Pulse is a mock frontend for a privacy-friendly analytics product in the Continental ecosystem.
+Pulse is a privacy-first analytics product for the Continental ecosystem with a Vite frontend and a Node-based collection and reporting backend.
 
 ## Stack
 
@@ -8,12 +8,19 @@ Pulse is a mock frontend for a privacy-friendly analytics product in the Contine
 - TypeScript
 - Vite
 - React Router
+- Node.js HTTP server
+- SQLite-backed event storage
 
 ## Routes
 
 - `/` landing page
 - `/dashboard` analytics overview
-- `/projects/aegis` example project detail
+- `/projects` live project directory
+- `/projects/aegis` project detail
+- `/events` live event stream
+- `/reports` reporting hub
+- `/alerts` alert evaluation surface
+- `/settings` workspace settings
 - `/docs` tracking script documentation
 
 ## Development
@@ -31,6 +38,12 @@ npm run build
 npm run build:server
 npm run test:server
 ```
+
+## Current State
+
+- Live analytics power the dashboard, projects, reports, events, alerts, and workspace settings surfaces.
+- `/v1/collect` accepts events into the local collector with duplicate protection, rate limiting, rollups, and retention enforcement.
+- `/v1/alerts`, `/v1/exports`, and `/v1/workspace` provide the production-oriented Phase 6 product surfaces.
 
 ## Deployment
 
