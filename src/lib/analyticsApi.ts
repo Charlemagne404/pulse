@@ -102,6 +102,7 @@ interface ApiErrorPayload {
 }
 
 const configuredApiBase = (import.meta.env.VITE_PULSE_API_BASE_URL || '').trim().replace(/\/+$/, '')
+const JSON_CONTENT_TYPE = 'application/json'
 
 const buildRequestUrl = (path: string, options: AnalyticsQueryOptions) => {
   const baseUrl = configuredApiBase || window.location.origin
@@ -126,7 +127,17 @@ const buildRequestUrl = (path: string, options: AnalyticsQueryOptions) => {
   return url
 }
 
+const buildNonJsonResponseMessage = (response: Response) => {
+  const contentType = response.headers.get('content-type') || 'unknown content type'
+  return `Analytics API returned ${contentType} instead of JSON. Check that /api and /v1 are routed to the Pulse backend.`
+}
+
 const buildErrorMessage = async (response: Response) => {
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes(JSON_CONTENT_TYPE)) {
+    return buildNonJsonResponseMessage(response)
+  }
+
   try {
     const payload = (await response.json()) as ApiErrorPayload
     if (payload.message) {
@@ -155,7 +166,16 @@ const requestJson = async <T>(
     throw new Error(await buildErrorMessage(response))
   }
 
-  return (await response.json()) as T
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes(JSON_CONTENT_TYPE)) {
+    throw new Error(buildNonJsonResponseMessage(response))
+  }
+
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new Error('Analytics API returned invalid JSON. Check that the backend is reachable and not serving HTML.')
+  }
 }
 
 export const fetchOverviewAnalytics = (options: AnalyticsQueryOptions = {}, signal?: AbortSignal) =>

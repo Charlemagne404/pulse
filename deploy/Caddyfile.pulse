@@ -1,4 +1,9 @@
 pulse.continental-hub.com {
+	@pulse_api path /api/* /v1/*
+	handle @pulse_api {
+		reverse_proxy 127.0.0.1:8787
+	}
+
 	root * /var/www/pulse
 	try_files {path} /index.html
 	header {
