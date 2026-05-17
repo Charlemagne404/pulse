@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ProductShell } from '../components/ProductShell'
 import { alertRules, alertTimeline } from '../data/content'
+import { STATUS_URL } from '../lib/siteLinks'
 
 export function AlertsPage() {
   return (
@@ -9,9 +10,9 @@ export function AlertsPage() {
       pageTitle={<h1>Alerts</h1>}
       toolbar={
         <div className="toolbar-cluster">
-          <Link to="/status" className="secondary-button">
+          <a href={STATUS_URL} className="secondary-button">
             Service Status
-          </Link>
+          </a>
         </div>
       }
     >
@@ -40,7 +41,7 @@ export function AlertsPage() {
         <div className="panel-head">
           <h2>Recent alert activity</h2>
           <Link to="/support" className="panel-link">
-            Escalation path
+            Troubleshooting
           </Link>
         </div>
 

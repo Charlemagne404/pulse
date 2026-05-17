@@ -6,6 +6,22 @@ interface StaticPageProps {
   content: StaticPageContent
 }
 
+function ActionLink({ className, label, to }: { className: string; label: string; to: string }) {
+  if (to.startsWith('http://') || to.startsWith('https://')) {
+    return (
+      <a href={to} className={className}>
+        {label}
+      </a>
+    )
+  }
+
+  return (
+    <Link to={to} className={className}>
+      {label}
+    </Link>
+  )
+}
+
 export function StaticPage({ content }: StaticPageProps) {
   return (
     <MarketingChrome
@@ -13,18 +29,14 @@ export function StaticPage({ content }: StaticPageProps) {
         <div className="landing-privacy-panel content-footer-panel">
           <div className="landing-footer-copy content-footer-copy">
             <div>
-              <h2>Need implementation help?</h2>
-              <p>Use the docs for rollout details or support for environment-specific questions and governance reviews.</p>
+              <h2>Set it up yourself.</h2>
+              <p>Use the docs to install Pulse, confirm what gets collected, and validate the dashboard without a sales or implementation call.</p>
             </div>
           </div>
 
           <div className="content-footer-actions">
-            <Link to={content.secondaryAction.to} className="secondary-button">
-              {content.secondaryAction.label}
-            </Link>
-            <Link to={content.primaryAction.to} className="primary-button gold">
-              {content.primaryAction.label}
-            </Link>
+            <ActionLink className="secondary-button" to={content.secondaryAction.to} label={content.secondaryAction.label} />
+            <ActionLink className="primary-button gold" to={content.primaryAction.to} label={content.primaryAction.label} />
           </div>
         </div>
       }
@@ -35,12 +47,8 @@ export function StaticPage({ content }: StaticPageProps) {
           <h1>{content.title}</h1>
           <p>{content.description}</p>
           <div className="hero-actions">
-            <Link to={content.primaryAction.to} className="primary-button gold">
-              {content.primaryAction.label}
-            </Link>
-            <Link to={content.secondaryAction.to} className="secondary-button">
-              {content.secondaryAction.label}
-            </Link>
+            <ActionLink className="primary-button gold" to={content.primaryAction.to} label={content.primaryAction.label} />
+            <ActionLink className="secondary-button" to={content.secondaryAction.to} label={content.secondaryAction.label} />
           </div>
         </div>
 

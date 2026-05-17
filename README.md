@@ -46,3 +46,7 @@ The installer will:
 - sync the built files to `/var/www/pulse`
 - append the Caddy site block for `pulse.continental-hub.com` if it is missing
 - validate and reload Caddy
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](/Users/charliearnerstal/Documents/GitHub/pulse/LICENSE).

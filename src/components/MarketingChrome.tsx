@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
-import { BrandLockup } from './Brand'
+import { STATUS_URL } from '../lib/siteLinks'
+import { BrandLockup, ContinentalWordmark } from './Brand'
 
 interface MarketingChromeProps {
   children: ReactNode
@@ -26,10 +27,9 @@ export function MarketingChrome({
 
           <nav className="landing-nav" aria-label="Primary navigation">
             <a href="/#features">Features</a>
-            <Link to="/pricing">Pricing</Link>
             <Link to="/docs">Docs</Link>
-            <Link to="/security">Security</Link>
-            <Link to="/status">Status</Link>
+            <Link to="/privacy">Privacy</Link>
+            <a href={STATUS_URL}>Status</a>
           </nav>
 
           <div className="landing-header-actions">
@@ -53,16 +53,16 @@ export function MarketingChrome({
 
           <div className="landing-footer-bottom">
             <div className="footer-brandline">
-              <span className="footer-brandmark">Continental</span>
-              <span>&copy; 2024 Continental AG. All rights reserved.</span>
+              <ContinentalWordmark className="footer-continental-wordmark" />
+              <span>&copy; 2026 Continental. All rights reserved.</span>
             </div>
 
             <nav className="footer-links" aria-label="Footer links">
               <Link to="/legal/privacy">Privacy</Link>
               <Link to="/legal/imprint">Imprint</Link>
               <Link to="/legal/terms">Terms</Link>
-              <Link to="/status">Status</Link>
-              <Link to="/support">Support</Link>
+              <a href={STATUS_URL}>Status</a>
+              <Link to="/support">Help</Link>
             </nav>
 
             <div className="footer-utility-icons" aria-hidden="true">

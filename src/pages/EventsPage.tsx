@@ -22,7 +22,7 @@ export function EventsPage() {
           <p>Review the standard events used across projects, then compare them against the most recent activity flowing into the workspace.</p>
         </div>
         <Link to="/support" className="secondary-button">
-          Ask Support
+          Open Help
         </Link>
       </section>
 
@@ -33,7 +33,7 @@ export function EventsPage() {
             <h2>{eventItem.name}</h2>
             <p>{eventItem.description}</p>
             <Link to="/docs" className="panel-link">
-              Review implementation
+              Open docs
             </Link>
           </article>
         ))}

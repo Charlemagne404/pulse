@@ -1,0 +1,16 @@
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Continental Pulse",
+  "url": "https://pulse.continental-hub.com/",
+  "description": "Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across Continental websites and apps.",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Continental"
+  },
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": "https://pulse.continental-hub.com/docs/search?q={search_term_string}",
+    "query-input": "required name=search_term_string"
+  }
+}

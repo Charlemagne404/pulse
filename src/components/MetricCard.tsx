@@ -1,3 +1,5 @@
+import { interpolateNumberSeries } from '../lib/analytics'
+
 interface MetricCardProps {
   label: string
   value: string
@@ -9,15 +11,16 @@ interface MetricCardProps {
 }
 
 function renderSparkline(points: number[]) {
-  const max = Math.max(...points)
-  const min = Math.min(...points)
+  const renderPoints = interpolateNumberSeries(points, 4)
+  const max = Math.max(...renderPoints)
+  const min = Math.min(...renderPoints)
   const range = Math.max(max - min, 1)
   const width = 76
   const height = 24
 
-  const path = points
+  const path = renderPoints
     .map((point, index) => {
-      const x = (index / Math.max(points.length - 1, 1)) * width
+      const x = (index / Math.max(renderPoints.length - 1, 1)) * width
       const y = height - ((point - min) / range) * height
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
     })

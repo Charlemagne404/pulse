@@ -1,0 +1,24 @@
+{
+  "name": "Continental Pulse",
+  "short_name": "Pulse",
+  "description": "Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across Continental websites and apps.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#030913",
+  "theme_color": "#08111A",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

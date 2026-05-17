@@ -3,11 +3,14 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AuthProvider } from './auth/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AlertsPage } from './pages/AlertsPage'
+import { staticPages } from './data/content'
+import { STATUS_URL } from './lib/siteLinks'
 import { DashboardPage } from './pages/DashboardPage'
 import { DocsPage } from './pages/DocsPage'
 import { DocsSearchPage } from './pages/DocsSearchPage'
 import { EventsPage } from './pages/EventsPage'
 import { HomePage } from './pages/HomePage'
+import { NotFoundPage } from './pages/NotFoundPage'
 import { ProjectPage } from './pages/ProjectPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { ProjectSectionPage } from './pages/ProjectSectionPage'
@@ -15,7 +18,6 @@ import { ReportDetailPage } from './pages/ReportDetailPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StaticPage } from './pages/StaticPage'
-import { staticPages } from './data/content'
 
 function ScrollManager() {
   const location = useLocation()
@@ -27,6 +29,14 @@ function ScrollManager() {
   return null
 }
 
+function ExternalRedirect({ href }: { href: string }) {
+  useEffect(() => {
+    window.location.replace(href)
+  }, [href])
+
+  return null
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -34,9 +44,10 @@ export default function App() {
         <ScrollManager />
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/pricing" element={<StaticPage content={staticPages.pricing} />} />
-          <Route path="/security" element={<StaticPage content={staticPages.security} />} />
-          <Route path="/status" element={<StaticPage content={staticPages.status} />} />
+          <Route path="/pricing" element={<Navigate to="/docs" replace />} />
+          <Route path="/security" element={<Navigate to="/privacy" replace />} />
+          <Route path="/privacy" element={<StaticPage content={staticPages.privacy} />} />
+          <Route path="/status" element={<ExternalRedirect href={STATUS_URL} />} />
           <Route path="/support" element={<StaticPage content={staticPages.support} />} />
           <Route path="/legal/privacy" element={<StaticPage content={staticPages.privacy} />} />
           <Route path="/legal/imprint" element={<StaticPage content={staticPages.imprint} />} />
@@ -147,7 +158,7 @@ export default function App() {
           />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/docs/search" element={<DocsSearchPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

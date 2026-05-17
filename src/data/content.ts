@@ -1,3 +1,6 @@
+import { buildDemoRangePresets, formatTimelineLabel } from '../lib/demoDates'
+import { STATUS_URL } from '../lib/siteLinks'
+
 export interface SeriesPoint {
   label: string
   value: number
@@ -47,65 +50,35 @@ export interface StaticPageContent {
 }
 
 export const staticPages: Record<string, StaticPageContent> = {
-  pricing: {
-    eyebrow: 'Plans',
-    title: 'Flexible plans for every analytics rollout.',
+  privacy: {
+    eyebrow: 'Privacy',
+    title: 'Privacy-first analytics with narrow collection by default.',
     description:
-      'Start with a lightweight website launch, then scale into portfolio reporting, consent governance, and executive visibility without changing platforms.',
+      'Pulse is meant to be installed and reviewed by the people using it. The defaults stay intentionally minimal, and the docs show exactly how to keep collection tight.',
     cards: [
-      { label: 'Implementation', value: '1 week', detail: 'From script placement to first dashboard review.' },
-      { label: 'Coverage', value: 'Web + SPA', detail: 'Works across marketing sites, portals, and campaign landers.' },
-      { label: 'Governance', value: 'EU-hosted', detail: 'Built for privacy-first deployment requirements.' },
+      { label: 'Cookies', value: 'Not required', detail: 'Pulse avoids cookie-based analytics by default.' },
+      { label: 'Identifiers', value: 'Minimal', detail: 'Collection is centered on events, pages, and aggregate trends.' },
+      { label: 'Setup model', value: 'Self-serve', detail: 'You add the script, verify the payloads, and review the dashboard yourself.' },
     ],
     sections: [
       {
-        title: 'Starter rollout',
-        body: 'Best for a single site or campaign team that needs reliable privacy-safe measurement without the overhead of a full data platform.',
-        bullets: ['Core page and event tracking', 'Shared dashboard templates', '7-day implementation guide'],
+        title: 'What gets collected',
+        body: 'Pulse captures the page context, event names, and technical dimensions needed to understand site usage without turning the tool into an identity layer.',
+        bullets: ['Page and event metadata', 'Device and browser dimensions', 'Country-level location from anonymized IP handling'],
       },
       {
-        title: 'Scale plan',
-        body: 'Designed for teams coordinating several products and needing common naming, faster reporting, and stakeholder-ready exports.',
-        bullets: ['Portfolio-wide project views', 'Reusable event conventions', 'Scheduled report packs for reviews'],
+        title: 'What stays out',
+        body: 'The product is deliberately opinionated about what it does not do. It is built to measure usage, not to profile people.',
+        bullets: ['No third-party ad tracking', 'No fingerprinting', 'No sale of collected analytics data'],
       },
       {
-        title: 'Enterprise foundation',
-        body: 'Adds governance and support for larger organizations standardizing privacy, data residency, and access reviews across multiple regions.',
-        bullets: ['Dedicated workspace controls', 'Support escalation routing', 'Quarterly analytics architecture reviews'],
+        title: 'How to keep it tight',
+        body: 'Start with a short event list, review the dashboard and payloads after installation, and only expand the setup if the extra data is genuinely useful.',
+        bullets: ['Project-level event allowlists', 'Consent mode configuration', 'Retention visibility in workspace settings'],
       },
     ],
-    primaryAction: { label: 'Open Dashboard', to: '/dashboard' },
-    secondaryAction: { label: 'Read Docs', to: '/docs' },
-  },
-  security: {
-    eyebrow: 'Security',
-    title: 'Security controls that fit enterprise procurement.',
-    description:
-      'Pulse is designed to keep collection minimal, access controlled, and audit work straightforward for internal teams and external reviewers.',
-    cards: [
-      { label: 'PII handling', value: 'Minimized', detail: 'Identifiers are anonymized before storage.' },
-      { label: 'Data region', value: 'EU', detail: 'Storage and processing stay in approved hosting regions.' },
-      { label: 'Access model', value: 'Role-based', detail: 'Workspace permissions map to stakeholder responsibility.' },
-    ],
-    sections: [
-      {
-        title: 'Collection safeguards',
-        body: 'Pulse avoids cookies and fingerprinting by default. The collection layer is tuned to capture usage trends, not user identity.',
-        bullets: ['IP anonymization in transit', 'Configurable event allowlists', 'Data minimization by default'],
-      },
-      {
-        title: 'Operational governance',
-        body: 'Security teams can review access, data retention, and export surfaces without needing custom scripts or ad hoc reporting.',
-        bullets: ['Workspace-level access review points', 'Retention policy visibility', 'Download and export monitoring'],
-      },
-      {
-        title: 'Audit readiness',
-        body: 'Documentation and product settings are structured so implementation details are available to legal, privacy, and security teams when they need them.',
-        bullets: ['Implementation runbooks', 'Consent handling guidance', 'Escalation contacts in support'],
-      },
-    ],
-    primaryAction: { label: 'View Support', to: '/support' },
-    secondaryAction: { label: 'Review Privacy Docs', to: '/legal/privacy' },
+    primaryAction: { label: 'Read Docs', to: '/docs' },
+    secondaryAction: { label: 'Open Dashboard', to: '/dashboard' },
   },
   status: {
     eyebrow: 'Operations',
@@ -115,17 +88,17 @@ export const staticPages: Record<string, StaticPageContent> = {
     cards: [
       { label: 'Collection API', value: 'Operational', detail: '99.99% uptime across the last 30 days.' },
       { label: 'Dashboard', value: 'Operational', detail: 'Average render latency below 420ms this week.' },
-      { label: 'Exports', value: 'Degraded yesterday', detail: 'Resolved after a brief queue delay on May 15.' },
+      { label: 'Exports', value: 'Recently recovered', detail: 'Resolved after a brief queue delay earlier this week.' },
     ],
     sections: [
       {
         title: 'Current health',
         body: 'Core analytics collection and dashboard reads are healthy. Scheduled exports recovered after a queueing issue and are back within their normal delivery window.',
-        bullets: ['No active incidents', 'Next maintenance window: May 24, 2026', 'Status updates posted within 15 minutes'],
+        bullets: ['No active incidents', 'Weekly maintenance window: Sundays 02:00 UTC', 'Status updates posted within 15 minutes'],
       },
       {
         title: 'Resolved incident history',
-        body: 'Yesterday a delayed export queue affected a subset of weekly report deliveries. Collection and live dashboards were unaffected.',
+        body: 'A recent delayed export queue affected a subset of weekly report deliveries. Collection and live dashboards were unaffected.',
         bullets: ['Impacted window: 08:14 to 08:42 UTC', 'Root cause: worker capacity spike', 'Mitigation: queue autoscaling raised'],
       },
       {
@@ -134,104 +107,73 @@ export const staticPages: Record<string, StaticPageContent> = {
         bullets: ['Advance notice in support and status feeds', 'Post-maintenance validation run', 'Rollback plan for every release window'],
       },
     ],
-    primaryAction: { label: 'Go To Support', to: '/support' },
+    primaryAction: { label: 'Read Docs', to: '/docs' },
     secondaryAction: { label: 'Open Dashboard', to: '/dashboard' },
   },
   support: {
-    eyebrow: 'Support',
-    title: 'Support paths for rollout, governance, and day-to-day analytics work.',
+    eyebrow: 'Help',
+    title: 'Self-serve setup, validation, and troubleshooting.',
     description:
-      'Use Pulse support for implementation help, dashboard questions, event design, and production incident handling across your rollout portfolio.',
+      'Pulse is meant to be used directly. Start with the docs, validate what the script sends, and use this page as a short guide for common checks when something looks off.',
     cards: [
-      { label: 'First response', value: '< 2h', detail: 'For production-impacting requests during business hours.' },
-      { label: 'Office hours', value: '3 days', detail: 'Weekly architecture and instrumentation review slots.' },
-      { label: 'Training', value: 'On-demand', detail: 'Docs-led onboarding for product, marketing, and security teams.' },
+      { label: 'Setup path', value: '10 min', detail: 'Install the script, initialize the project, and confirm one event.' },
+      { label: 'Primary source', value: 'Docs', detail: 'The docs cover installation, consent mode, routing, and event naming.' },
+      { label: 'Best first check', value: 'Dashboard', detail: 'Confirm page views before expanding into more custom events.' },
     ],
     sections: [
       {
-        title: 'Implementation desk',
-        body: 'For teams wiring the script, validating events, or standing up their first workspace. Support reviews collection plans before launch.',
-        bullets: ['Tracking plan review', 'Tag placement validation', 'Pre-launch dashboard walkthrough'],
+        title: 'Install and verify',
+        body: 'Use the docs to add the script, initialize Pulse once, and validate page views before adding more instrumentation.',
+        bullets: ['Install the script in the site shell', 'Confirm the correct project identifier', 'Validate page views and one custom event'],
       },
       {
-        title: 'Operational support',
-        body: 'For teams monitoring live analytics and needing help with reporting, access, or alert tuning after launch.',
-        bullets: ['Dashboard troubleshooting', 'Alert rule tuning', 'Scheduled export verification'],
+        title: 'Privacy checks',
+        body: 'Review the privacy page before widening the tracking plan. Keep payloads small and avoid sending anything you would not want to audit later.',
+        bullets: ['Avoid personal data in payloads', 'Keep events business-readable', 'Use consent mode when required'],
       },
       {
-        title: 'Governance and privacy',
-        body: 'For legal, privacy, and security stakeholders who need implementation evidence, architecture details, or policy clarifications.',
-        bullets: ['Privacy review materials', 'Security questionnaire support', 'Retention and access guidance'],
+        title: 'When something looks off',
+        body: 'If the data does not match expectations, compare the page and event payloads against the docs, then check the current system status before changing the setup.',
+        bullets: ['Review the event reference', 'Compare the live payloads with the docs', 'Check status for collection or export issues'],
       },
     ],
     primaryAction: { label: 'Browse Docs', to: '/docs' },
-    secondaryAction: { label: 'Check Status', to: '/status' },
-  },
-  privacy: {
-    eyebrow: 'Legal',
-    title: 'Pulse privacy commitments and collection boundaries.',
-    description:
-      'Pulse is built to help teams understand product performance while keeping collection deliberately narrow and governance straightforward.',
-    cards: [
-      { label: 'Cookies', value: 'Not required', detail: 'The platform avoids cookie-based analytics by default.' },
-      { label: 'Identifiers', value: 'Reduced', detail: 'Collection is structured around events and aggregated trends.' },
-      { label: 'Retention', value: 'Policy-driven', detail: 'Workspace configuration follows retention guidance.' },
-    ],
-    sections: [
-      {
-        title: 'What Pulse collects',
-        body: 'Pulse captures page context, event names, technical dimensions, and consent-aware identifiers needed for measurement and product analysis.',
-        bullets: ['Page and event metadata', 'Device and browser dimensions', 'Country-level location derived from anonymized IP handling'],
-      },
-      {
-        title: 'What Pulse avoids',
-        body: 'The platform is designed to avoid user profiling patterns that conflict with privacy-first deployment expectations.',
-        bullets: ['No third-party ad tracking', 'No fingerprinting', 'No sale of collected analytics data'],
-      },
-      {
-        title: 'Operational controls',
-        body: 'Teams can apply stricter collection choices when a project requires additional privacy or policy constraints.',
-        bullets: ['Project-level event allowlists', 'Consent mode configuration', 'Retention visibility in workspace settings'],
-      },
-    ],
-    primaryAction: { label: 'Read Docs', to: '/docs' },
-    secondaryAction: { label: 'Contact Support', to: '/support' },
+    secondaryAction: { label: 'Check Status', to: STATUS_URL },
   },
   imprint: {
     eyebrow: 'Legal',
-    title: 'Company and publishing information for Pulse.',
-    description:
-      'This page collects the basic publication and contact details typically requested for internal rollouts, vendor reviews, and regional compliance checks.',
+    title: 'Publishing information for Pulse.',
+    description: 'This page lists the basic publication and contact details for Pulse.',
     cards: [
-      { label: 'Publisher', value: 'Continental AG', detail: 'Product and platform ownership remains within Continental.' },
-      { label: 'Primary office', value: 'Hanover', detail: 'Central coordination for analytics platform governance.' },
-      { label: 'Business contact', value: 'pulse@continental.com', detail: 'Routes to the internal platform distribution list.' },
+      { label: 'Publisher', value: 'Continental', detail: 'Pulse is published and operated by Continental.' },
+      { label: 'Primary office', value: 'Hanover', detail: 'Registered publishing location for the product.' },
+      { label: 'Contact', value: 'pulse@continental.com', detail: 'General contact route for Pulse questions.' },
     ],
     sections: [
       {
         title: 'Responsible entity',
-        body: 'Continental AG is responsible for operating and publishing Pulse as an internal analytics platform for approved websites and digital products.',
-        bullets: ['Registered office: Hanover, Germany', 'Platform owner: Continental Digital Experience', 'Workspace access subject to internal approval'],
+        body: 'Continental is responsible for operating and publishing Pulse.',
+        bullets: ['Registered office: Hanover, Germany', 'Product name: Pulse', 'Website and analytics software operated by Continental'],
       },
       {
-        title: 'Operational contact',
-        body: 'Product, support, and governance requests are routed through the internal platform team and triaged to the right function.',
-        bullets: ['Implementation questions via support', 'Security questions via governance channel', 'Incident escalations via status and support'],
+        title: 'Contact route',
+        body: 'Use the published contact address when you need to reference the product, and include the relevant site or project context in the message.',
+        bullets: ['Check the docs before reaching out about setup', 'Use the status page for incident visibility', 'Reference the relevant project or domain when contacting Pulse'],
       },
       {
         title: 'Usage note',
-        body: 'This imprint is provided for platform users and reviewers who need the responsible entity and contact path during deployment and audit work.',
-        bullets: ['Keep workspace requests tied to a business owner', 'Reference the project slug in support requests', 'Use docs for self-service setup first'],
+        body: 'This imprint is provided for users and reviewers who need the responsible entity and contact route for Pulse.',
+        bullets: ['Use the docs for setup details', 'Use the privacy page for collection boundaries', 'Use the status page for current availability information'],
       },
     ],
-    primaryAction: { label: 'Visit Support', to: '/support' },
-    secondaryAction: { label: 'View Status', to: '/status' },
+    primaryAction: { label: 'Read Docs', to: '/docs' },
+    secondaryAction: { label: 'View Status', to: STATUS_URL },
   },
   terms: {
     eyebrow: 'Legal',
     title: 'Terms for using Pulse across approved digital properties.',
     description:
-      'These terms summarize the operational expectations for teams using the Pulse workspace, APIs, reporting surfaces, and export capabilities.',
+      'These terms summarize the operational expectations for using the Pulse workspace, APIs, reporting surfaces, and export capabilities.',
     cards: [
       { label: 'Eligible use', value: 'Approved properties', detail: 'Projects require an internal owner and declared business purpose.' },
       { label: 'Access model', value: 'Least privilege', detail: 'Workspace access should match role and reporting need.' },
@@ -250,12 +192,12 @@ export const staticPages: Record<string, StaticPageContent> = {
       },
       {
         title: 'Operational expectations',
-        body: 'Teams should use docs and support for setup issues, and notify the platform team when collection plans or consent requirements change materially.',
-        bullets: ['Raise incidents promptly', 'Update tracking when journeys change', 'Review status notices before major launches'],
+        body: 'Use the docs and help resources for setup issues, keep tracking aligned with the live product, and review status notices before major launches.',
+        bullets: ['Update tracking when journeys change', 'Review payloads before widening collection', 'Review status notices before major launches'],
       },
     ],
     primaryAction: { label: 'Review Docs', to: '/docs' },
-    secondaryAction: { label: 'Open Support', to: '/support' },
+    secondaryAction: { label: 'Open Help', to: '/support' },
   },
 }
 
@@ -292,19 +234,19 @@ export const docsSidebarSections = [
 export const docsSections: DocsSectionContent[] = [
   {
     title: 'Introduction',
-    summary: 'What Pulse is for and how teams typically adopt it.',
+    summary: 'What Pulse is for and how to get it running.',
     body: [
-      'Pulse is a privacy-first analytics platform for Continental websites and product surfaces. It gives rollout teams a shared view of visits, engagement, and events without relying on cookie-heavy tracking patterns.',
-      'Most teams start with one project, validate page and event naming, then expand into workspace reporting, alerting, and export flows once the baseline instrumentation is stable.',
+      'Pulse is a privacy-first analytics platform you can install on your own site. It gives you a clear view of visits, engagement, and events without relying on cookie-heavy tracking patterns.',
+      'Most setups start with one project, stable page naming, and a short event list. Once the baseline instrumentation is verified, you can expand into reports, alerts, and exports.',
     ],
-    bullets: ['Built for portfolio reporting', 'Designed for privacy review', 'Works for sites, apps, and campaign landers'],
+    bullets: ['Built for self-serve setup', 'Designed for privacy review', 'Works for sites, apps, and campaign landers'],
   },
   {
     title: 'Quick Start',
     summary: 'Get a project online with a minimal setup path.',
     body: [
       'Create the project in Pulse, add the script tag to the site shell, and initialize the client once with the project identifier. After that, validate page views and one custom event in the dashboard.',
-      'Use the support team only if collection behavior does not match the expected page and event plan. For most launches the self-service docs are enough to get to first data quickly.',
+      'If the data does not match expectations, compare the payloads against the docs and privacy notes before widening the setup. For most launches, the self-serve docs are enough to get to first data quickly.',
     ],
     bullets: ['Create the project', 'Install the script', 'Validate page views', 'Add one high-signal event'],
   },
@@ -330,7 +272,7 @@ export const docsSections: DocsSectionContent[] = [
     summary: 'Initialize a project and confirm the default collection mode.',
     body: [
       'Call init exactly once in the application shell. Set the project identifier, confirm the base endpoint, and disable debug mode in production environments.',
-      'Teams usually pair setup with a lightweight tracking plan that documents the project owner, primary KPIs, and the events that matter for launch readiness.',
+      'Pair setup with a lightweight tracking plan that documents the primary KPIs and the events that matter for launch readiness.',
     ],
     code: {
       title: 'project config',
@@ -396,7 +338,7 @@ pulse.init({
     title: 'Consent Mode',
     summary: 'Align collection behavior with the user consent state.',
     body: [
-      'Pulse supports consent-aware collection by letting teams disable optional tracking surfaces until the correct state is known.',
+      'Pulse supports consent-aware collection by letting you disable optional tracking surfaces until the correct state is known.',
       'The recommended pattern is to initialize the client with the strictest collection mode, then open the needed capabilities only after the consent manager resolves.',
     ],
     bullets: ['Default to strict mode', 'Update collection only after consent is known', 'Document consent assumptions in the project setup'],
@@ -405,12 +347,12 @@ pulse.init({
     title: 'API Reference',
     summary: 'Understand the core browser methods available in the client.',
     body: [
-      'The primary browser methods are init, page, identify, and track. Most projects only need init, page, and track to support rollout reporting.',
+      'The primary browser methods are init, page, identify, and track. Most projects only need init, page, and track to support everyday reporting.',
       'Treat identify as optional and only enable it if the privacy review for the project explicitly allows the chosen identifier strategy.',
     ],
     code: {
       title: 'browser API',
-      code: String.raw`pulse.page({ path: '/pricing', title: 'Pricing' });
+      code: String.raw`pulse.page({ path: '/privacy', title: 'Privacy' });
 pulse.track('download', { asset: 'product-sheet' });`,
     },
   },
@@ -444,28 +386,28 @@ pulse.track('download', { asset: 'product-sheet' });`,
     title: 'Privacy',
     summary: 'See the privacy-by-design principles behind Pulse collection.',
     body: [
-      'Pulse is intentionally narrow in what it collects. Teams should review event payloads for data minimization and avoid adding unnecessary business or personal detail.',
+      'Pulse is intentionally narrow in what it collects. Review event payloads for data minimization and avoid adding unnecessary business or personal detail.',
       'If a project needs a stricter privacy posture, configure the collection plan before launch rather than trimming data after rollout.',
     ],
     bullets: ['No fingerprinting', 'Cookie-free by default', 'Configurable retention and collection scope'],
   },
   {
     title: 'FAQs',
-    summary: 'Common rollout questions and the shortest useful answers.',
+    summary: 'Common setup questions and the shortest useful answers.',
     body: [
       'How many events should I track? Only the ones that explain critical journeys or operational milestones. More events do not automatically mean better reporting.',
       'How quickly does data arrive? Most events appear in the dashboard within seconds, while scheduled reports and exports follow their configured delivery window.',
     ],
-    bullets: ['Start small and validate', 'Prefer stable naming', 'Use support for rollout blockers, not every routine question'],
+    bullets: ['Start small and validate', 'Prefer stable naming', 'Review payloads before expanding scope'],
   },
   {
     title: 'Changelog',
-    summary: 'Recent platform changes that matter to rollout teams.',
+    summary: 'Recent product changes worth knowing about.',
     body: [
-      'May 2026: Added workspace alerts and shared report landing pages for top referrers and content performance.',
-      'April 2026: Expanded support for project-level settings visibility and improved the docs coverage for SPA routing and consent mode.',
+      'Latest release: Added workspace alerts and shared report landing pages for top referrers and content performance.',
+      'Previous release: Expanded project-level settings visibility and improved the docs coverage for SPA routing and consent mode.',
     ],
-    bullets: ['May 2026: alerting and report deep links', 'April 2026: docs expansion', 'March 2026: export queue improvements'],
+    bullets: ['Recent: alerting and report deep links', 'Earlier: docs expansion', 'Earlier: export queue improvements'],
   },
 ]
 
@@ -556,49 +498,37 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { label: 'Bounce Rate', value: '38.7%', delta: '-2.8%', trend: [32, 31, 29, 28, 27, 25, 24] },
       { label: 'Live Visitors', value: '48', delta: 'Live', trend: [5, 6, 4, 8, 7, 9, 8], live: true },
     ],
-    rangePresets: [
-      {
-        label: '7D',
-        dates: 'May 12 - May 18, 2024',
-        series: [
-          { label: 'May 12', value: 55000 },
-          { label: 'May 13', value: 89000 },
-          { label: 'May 14', value: 72000 },
-          { label: 'May 15', value: 108000 },
-          { label: 'May 16', value: 94000 },
-          { label: 'May 17', value: 121000 },
-          { label: 'May 18', value: 138000 },
-        ],
-      },
-      {
-        label: '30D',
-        dates: 'Apr 19 - May 18, 2024',
-        series: [
-          { label: 'Apr 19', value: 43000 },
-          { label: 'Apr 24', value: 52000 },
-          { label: 'Apr 29', value: 61000 },
-          { label: 'May 04', value: 69000 },
-          { label: 'May 09', value: 84000 },
-          { label: 'May 14', value: 96000 },
-          { label: 'May 18', value: 138000 },
-        ],
-      },
-      {
-        label: 'QTD',
-        dates: 'Mar 01 - May 18, 2024',
-        series: [
-          { label: 'Mar', value: 310000 },
-          { label: 'Late Mar', value: 364000 },
-          { label: 'Apr', value: 412000 },
-          { label: 'Late Apr', value: 458000 },
-          { label: 'May', value: 521000 },
-        ],
-      },
-    ],
+    rangePresets: buildDemoRangePresets({
+      sevenDaySeries: [
+        { label: 'May 12', value: 55000 },
+        { label: 'May 13', value: 89000 },
+        { label: 'May 14', value: 72000 },
+        { label: 'May 15', value: 108000 },
+        { label: 'May 16', value: 94000 },
+        { label: 'May 17', value: 121000 },
+        { label: 'May 18', value: 138000 },
+      ],
+      thirtyDaySeries: [
+        { label: 'Apr 19', value: 43000 },
+        { label: 'Apr 24', value: 52000 },
+        { label: 'Apr 29', value: 61000 },
+        { label: 'May 04', value: 69000 },
+        { label: 'May 09', value: 84000 },
+        { label: 'May 14', value: 96000 },
+        { label: 'May 18', value: 138000 },
+      ],
+      quarterToDateSeries: [
+        { label: 'Mar', value: 310000 },
+        { label: 'Late Mar', value: 364000 },
+        { label: 'Apr', value: 412000 },
+        { label: 'Late Apr', value: 458000 },
+        { label: 'May', value: 521000 },
+      ],
+    }),
     topPages: [
       { label: '/overview', value: '285K' },
       { label: '/features', value: '210K' },
-      { label: '/pricing', value: '178K' },
+      { label: '/privacy', value: '178K' },
       { label: '/resources', value: '160K' },
       { label: '/contact', value: '96K' },
     ],
@@ -632,50 +562,38 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { label: 'Bounce Rate', value: '41.4%', delta: '-1.7%', trend: [31, 31, 30, 29, 28, 28, 27] },
       { label: 'Live Visitors', value: '23', delta: 'Live', trend: [4, 5, 4, 6, 6, 7, 6], live: true },
     ],
-    rangePresets: [
-      {
-        label: '7D',
-        dates: 'May 12 - May 18, 2024',
-        series: [
-          { label: 'May 12', value: 24000 },
-          { label: 'May 13', value: 31000 },
-          { label: 'May 14', value: 28000 },
-          { label: 'May 15', value: 36000 },
-          { label: 'May 16', value: 34000 },
-          { label: 'May 17', value: 41000 },
-          { label: 'May 18', value: 46000 },
-        ],
-      },
-      {
-        label: '30D',
-        dates: 'Apr 19 - May 18, 2024',
-        series: [
-          { label: 'Apr 19', value: 18000 },
-          { label: 'Apr 24', value: 22000 },
-          { label: 'Apr 29', value: 26000 },
-          { label: 'May 04', value: 28000 },
-          { label: 'May 09', value: 32000 },
-          { label: 'May 14', value: 39000 },
-          { label: 'May 18', value: 46000 },
-        ],
-      },
-      {
-        label: 'QTD',
-        dates: 'Mar 01 - May 18, 2024',
-        series: [
-          { label: 'Mar', value: 144000 },
-          { label: 'Late Mar', value: 166000 },
-          { label: 'Apr', value: 194000 },
-          { label: 'Late Apr', value: 221000 },
-          { label: 'May', value: 253000 },
-        ],
-      },
-    ],
+    rangePresets: buildDemoRangePresets({
+      sevenDaySeries: [
+        { label: 'May 12', value: 24000 },
+        { label: 'May 13', value: 31000 },
+        { label: 'May 14', value: 28000 },
+        { label: 'May 15', value: 36000 },
+        { label: 'May 16', value: 34000 },
+        { label: 'May 17', value: 41000 },
+        { label: 'May 18', value: 46000 },
+      ],
+      thirtyDaySeries: [
+        { label: 'Apr 19', value: 18000 },
+        { label: 'Apr 24', value: 22000 },
+        { label: 'Apr 29', value: 26000 },
+        { label: 'May 04', value: 28000 },
+        { label: 'May 09', value: 32000 },
+        { label: 'May 14', value: 39000 },
+        { label: 'May 18', value: 46000 },
+      ],
+      quarterToDateSeries: [
+        { label: 'Mar', value: 144000 },
+        { label: 'Late Mar', value: 166000 },
+        { label: 'Apr', value: 194000 },
+        { label: 'Late Apr', value: 221000 },
+        { label: 'May', value: 253000 },
+      ],
+    }),
     topPages: [
       { label: '/hydraulics', value: '131K' },
       { label: '/products/e-belt', value: '104K' },
       { label: '/sustainability', value: '86K' },
-      { label: '/contact-sales', value: '62K' },
+      { label: '/contact', value: '62K' },
       { label: '/downloads', value: '49K' },
     ],
     referrers: [
@@ -689,7 +607,7 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { event: 'page_view', count: '642K' },
       { event: 'file_download', count: '31K' },
       { event: 'spec_opened', count: '19K' },
-      { event: 'contact_sales', count: '5.4K' },
+      { event: 'contact_request', count: '5.4K' },
       { event: 'video_play', count: '1.9K' },
     ],
     countryMix: [
@@ -708,50 +626,38 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { label: 'Bounce Rate', value: '36.2%', delta: '-4.6%', trend: [29, 28, 27, 26, 25, 24, 23] },
       { label: 'Live Visitors', value: '17', delta: 'Live', trend: [3, 4, 4, 5, 5, 6, 5], live: true },
     ],
-    rangePresets: [
-      {
-        label: '7D',
-        dates: 'May 12 - May 18, 2024',
-        series: [
-          { label: 'May 12', value: 11000 },
-          { label: 'May 13', value: 14000 },
-          { label: 'May 14', value: 16000 },
-          { label: 'May 15', value: 21000 },
-          { label: 'May 16', value: 24000 },
-          { label: 'May 17', value: 26000 },
-          { label: 'May 18', value: 29000 },
-        ],
-      },
-      {
-        label: '30D',
-        dates: 'Apr 19 - May 18, 2024',
-        series: [
-          { label: 'Apr 19', value: 9000 },
-          { label: 'Apr 24', value: 11000 },
-          { label: 'Apr 29', value: 14000 },
-          { label: 'May 04', value: 17000 },
-          { label: 'May 09', value: 21000 },
-          { label: 'May 14', value: 25000 },
-          { label: 'May 18', value: 29000 },
-        ],
-      },
-      {
-        label: 'QTD',
-        dates: 'Mar 01 - May 18, 2024',
-        series: [
-          { label: 'Mar', value: 72000 },
-          { label: 'Late Mar', value: 81000 },
-          { label: 'Apr', value: 96000 },
-          { label: 'Late Apr', value: 112000 },
-          { label: 'May', value: 134000 },
-        ],
-      },
-    ],
+    rangePresets: buildDemoRangePresets({
+      sevenDaySeries: [
+        { label: 'May 12', value: 11000 },
+        { label: 'May 13', value: 14000 },
+        { label: 'May 14', value: 16000 },
+        { label: 'May 15', value: 21000 },
+        { label: 'May 16', value: 24000 },
+        { label: 'May 17', value: 26000 },
+        { label: 'May 18', value: 29000 },
+      ],
+      thirtyDaySeries: [
+        { label: 'Apr 19', value: 9000 },
+        { label: 'Apr 24', value: 11000 },
+        { label: 'Apr 29', value: 14000 },
+        { label: 'May 04', value: 17000 },
+        { label: 'May 09', value: 21000 },
+        { label: 'May 14', value: 25000 },
+        { label: 'May 18', value: 29000 },
+      ],
+      quarterToDateSeries: [
+        { label: 'Mar', value: 72000 },
+        { label: 'Late Mar', value: 81000 },
+        { label: 'Apr', value: 96000 },
+        { label: 'Late Apr', value: 112000 },
+        { label: 'May', value: 134000 },
+      ],
+    }),
     topPages: [
       { label: '/fleet-dashboard', value: '76K' },
       { label: '/drivers-app', value: '58K' },
       { label: '/case-studies', value: '43K' },
-      { label: '/contact-sales', value: '37K' },
+      { label: '/contact', value: '37K' },
       { label: '/faq', value: '22K' },
     ],
     referrers: [
@@ -764,7 +670,7 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
     eventTable: [
       { event: 'page_view', count: '312K' },
       { event: 'demo_opened', count: '18K' },
-      { event: 'contact_sales', count: '7.4K' },
+      { event: 'contact_request', count: '7.4K' },
       { event: 'video_play', count: '3.1K' },
       { event: 'file_download', count: '2.2K' },
     ],
@@ -784,45 +690,33 @@ export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
       { label: 'Bounce Rate', value: '44.8%', delta: '-2.2%', trend: [34, 33, 33, 31, 31, 30, 29] },
       { label: 'Live Visitors', value: '11', delta: 'Live', trend: [2, 3, 3, 4, 4, 5, 4], live: true },
     ],
-    rangePresets: [
-      {
-        label: '7D',
-        dates: 'May 12 - May 18, 2024',
-        series: [
-          { label: 'May 12', value: 6000 },
-          { label: 'May 13', value: 7200 },
-          { label: 'May 14', value: 8100 },
-          { label: 'May 15', value: 9400 },
-          { label: 'May 16', value: 10100 },
-          { label: 'May 17', value: 11800 },
-          { label: 'May 18', value: 13200 },
-        ],
-      },
-      {
-        label: '30D',
-        dates: 'Apr 19 - May 18, 2024',
-        series: [
-          { label: 'Apr 19', value: 4200 },
-          { label: 'Apr 24', value: 5100 },
-          { label: 'Apr 29', value: 6200 },
-          { label: 'May 04', value: 7600 },
-          { label: 'May 09', value: 9100 },
-          { label: 'May 14', value: 10800 },
-          { label: 'May 18', value: 13200 },
-        ],
-      },
-      {
-        label: 'QTD',
-        dates: 'Mar 01 - May 18, 2024',
-        series: [
-          { label: 'Mar', value: 34000 },
-          { label: 'Late Mar', value: 39000 },
-          { label: 'Apr', value: 47000 },
-          { label: 'Late Apr', value: 56000 },
-          { label: 'May', value: 68000 },
-        ],
-      },
-    ],
+    rangePresets: buildDemoRangePresets({
+      sevenDaySeries: [
+        { label: 'May 12', value: 6000 },
+        { label: 'May 13', value: 7200 },
+        { label: 'May 14', value: 8100 },
+        { label: 'May 15', value: 9400 },
+        { label: 'May 16', value: 10100 },
+        { label: 'May 17', value: 11800 },
+        { label: 'May 18', value: 13200 },
+      ],
+      thirtyDaySeries: [
+        { label: 'Apr 19', value: 4200 },
+        { label: 'Apr 24', value: 5100 },
+        { label: 'Apr 29', value: 6200 },
+        { label: 'May 04', value: 7600 },
+        { label: 'May 09', value: 9100 },
+        { label: 'May 14', value: 10800 },
+        { label: 'May 18', value: 13200 },
+      ],
+      quarterToDateSeries: [
+        { label: 'Mar', value: 34000 },
+        { label: 'Late Mar', value: 39000 },
+        { label: 'Apr', value: 47000 },
+        { label: 'Late Apr', value: 56000 },
+        { label: 'May', value: 68000 },
+      ],
+    }),
     topPages: [
       { label: '/store-locator', value: '39K' },
       { label: '/book-service', value: '31K' },
@@ -878,7 +772,7 @@ export const reportLibrary = [
 export const reportDetails = {
   pages: {
     title: 'Content Performance',
-    description: 'Review the top landing and support pages attracting the most attention across active projects.',
+    description: 'Review the top landing and help pages attracting the most attention across active projects.',
     metrics: [
       { label: 'Tracked pages', value: '186' },
       { label: 'Top landing pages', value: '24' },
@@ -960,16 +854,28 @@ export const alertRules = [
 ]
 
 export const alertTimeline = [
-  { when: 'Today, 09:14', title: 'Export delay monitor recovered', detail: 'Weekly export queue returned to normal delivery latency.' },
-  { when: 'Yesterday, 16:40', title: 'Aegis landing page alert resolved', detail: 'Traffic dip traced to a temporary campaign pause.' },
-  { when: 'May 13, 08:20', title: 'Consent mode mismatch reviewed', detail: 'Staging configuration updated after QA validation.' },
+  {
+    when: formatTimelineLabel(0, '09:14'),
+    title: 'Export delay monitor recovered',
+    detail: 'Weekly export queue returned to normal delivery latency.',
+  },
+  {
+    when: formatTimelineLabel(-1, '16:40'),
+    title: 'Aegis landing page alert resolved',
+    detail: 'Traffic dip traced to a temporary campaign pause.',
+  },
+  {
+    when: formatTimelineLabel(-4, '08:20'),
+    title: 'Consent mode mismatch reviewed',
+    detail: 'Staging configuration updated after QA validation.',
+  },
 ]
 
 export const workspaceSettingsSections = [
   {
     title: 'Workspace access',
     body: 'Control who can review reports, export data, and adjust alert or collection settings across the portfolio.',
-    bullets: ['Role-based viewer, editor, and admin access', 'Quarterly access review reminders', 'Support escalation for privileged changes'],
+    bullets: ['Role-based viewer, editor, and admin access', 'Quarterly access review reminders', 'Extra review for privileged changes'],
   },
   {
     title: 'Collection controls',
@@ -990,17 +896,17 @@ export const projectConversionBySlug: Record<
   aegis: [
     { label: 'Demo request', value: '4.7%', detail: 'Hero CTA to request form completion', share: 74 },
     { label: 'Spec download', value: '3.3%', detail: 'Technical PDF downloads from product pages', share: 58 },
-    { label: 'Newsletter opt-in', value: '1.8%', detail: 'Support and roadmap updates subscription', share: 32 },
+    { label: 'Newsletter opt-in', value: '1.8%', detail: 'Product and roadmap updates subscription', share: 32 },
   ],
   contitech: [
-    { label: 'Sales inquiry', value: '3.9%', detail: 'Contact-sales flow completion rate', share: 69 },
+    { label: 'Contact request', value: '3.9%', detail: 'Contact form completion rate', share: 69 },
     { label: 'Asset download', value: '5.1%', detail: 'High-value product sheet delivery', share: 83 },
     { label: 'Sample request', value: '1.6%', detail: 'Qualified engineering inquiry submission', share: 29 },
   ],
   'vdo-fleet': [
     { label: 'Demo opened', value: '5.4%', detail: 'Fleet platform tour launch rate', share: 79 },
-    { label: 'Contact sales', value: '2.7%', detail: 'Lead flow completion after pricing review', share: 44 },
-    { label: 'App install', value: '1.9%', detail: 'Mobile app handoff from support pages', share: 31 },
+    { label: 'Contact request', value: '2.7%', detail: 'Contact flow completion after docs review', share: 44 },
+    { label: 'App install', value: '1.9%', detail: 'Mobile app handoff from help pages', share: 31 },
   ],
   contitrade: [
     { label: 'Book service', value: '6.2%', detail: 'Appointment start from location and offer pages', share: 88 },

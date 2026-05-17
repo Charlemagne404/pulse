@@ -39,7 +39,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
             Project Docs
           </Link>
           <Link to="/support" className="secondary-button">
-            Support
+            Help
           </Link>
         </div>
       }
@@ -126,7 +126,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
           <div className="panel-head">
             <h2>Primary conversion paths</h2>
             <Link to="/support" className="panel-link">
-              Tune goals
+              Review guidance
             </Link>
           </div>
           <ProgressList items={projectConversionBySlug[project.slug]} />
@@ -154,11 +154,11 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
 
 function buildSectionIntro(sectionKey: ProjectSectionPageProps['sectionKey'], projectName: string) {
   if (sectionKey === 'pages') {
-    return `Review the strongest landing and support content for ${projectName}, then compare the results with the workspace-level content report.`
+    return `Review the strongest landing and help content for ${projectName}, then compare the results with the workspace-level content report.`
   }
 
   if (sectionKey === 'events') {
-    return `See the current event mix for ${projectName}, including the interactions most useful for rollout validation and conversion review.`
+    return `See the current event mix for ${projectName}, including the interactions most useful for setup validation and conversion review.`
   }
 
   if (sectionKey === 'conversions') {

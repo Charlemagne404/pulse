@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { interpolateSeriesPoints } from '../lib/analytics'
 
 interface SeriesPoint {
   label: string
@@ -19,13 +20,15 @@ const PADDING_BOTTOM = 34
 
 export function LineChart({ data, compact = false, height = 240, hideLabels = false }: LineChartProps) {
   const gradientId = useId().replace(/:/g, '')
-  const max = Math.max(...data.map((point) => point.value))
-  const min = Math.min(...data.map((point) => point.value))
+  const interpolationStep = compact ? 3 : 4
+  const renderData = interpolateSeriesPoints(data, interpolationStep)
+  const max = Math.max(...renderData.map((point) => point.value))
+  const min = Math.min(...renderData.map((point) => point.value))
   const range = Math.max(max - min, 1)
 
-  const points = data.map((point, index) => {
+  const points = renderData.map((point, index) => {
     const x =
-      PADDING_X + (index / Math.max(data.length - 1, 1)) * (CHART_WIDTH - PADDING_X * 2)
+      PADDING_X + (index / Math.max(renderData.length - 1, 1)) * (CHART_WIDTH - PADDING_X * 2)
     const y =
       PADDING_TOP + ((max - point.value) / range) * (height - PADDING_TOP - PADDING_BOTTOM)
 
@@ -68,8 +71,8 @@ export function LineChart({ data, compact = false, height = 240, hideLabels = fa
         <path d={linePath} className="chart-line-path" />
 
         {points.map((point, index) =>
-          index === points.length - 1 || (!compact && index % labelStep === 0) ? (
-            <circle key={point.label} cx={point.x} cy={point.y} r={compact ? 3 : 4} className="chart-dot" />
+          !point.synthetic && (index === points.length - 1 || (!compact && index % interpolationStep === 0)) ? (
+            <circle key={`${point.label}-${index}`} cx={point.x} cy={point.y} r={compact ? 3 : 4} className="chart-dot" />
           ) : null,
         )}
       </svg>

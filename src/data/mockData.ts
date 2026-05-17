@@ -1,10 +1,12 @@
+import { relabelRecentWeekSeries } from '../lib/demoDates'
+
 export const landingPreviewMetrics = [
   { label: 'Page Views', value: '2.48M', delta: '+12.4%', trend: [22, 24, 28, 26, 31, 35, 38] },
   { label: 'Unique Visitors', value: '827K', delta: '+8.7%', trend: [12, 16, 14, 20, 19, 22, 24] },
   { label: 'Live Visitors', value: '126', delta: 'Live', trend: [8, 9, 7, 11, 10, 13, 12], live: true },
 ]
 
-export const landingSeries = [
+export const landingSeries = relabelRecentWeekSeries([
   { label: 'May 12', value: 58000 },
   { label: 'May 13', value: 77000 },
   { label: 'May 14', value: 104000 },
@@ -12,7 +14,7 @@ export const landingSeries = [
   { label: 'May 16', value: 118000 },
   { label: 'May 17', value: 137000 },
   { label: 'May 18', value: 151000 },
-]
+])
 
 export const landingFeatureCards = [
   {
@@ -28,8 +30,8 @@ export const landingFeatureCards = [
     body: 'A small script with modern collection and minimal impact on performance.',
   },
   {
-    title: 'Secure & compliant',
-    body: 'EU-hosted, GDPR aligned, and built for enterprise-grade governance.',
+    title: 'Minimal by default',
+    body: 'EU-hosted, GDPR aligned, and built to keep collection intentionally narrow.',
   },
 ]
 
@@ -41,7 +43,7 @@ export const dashboardMetrics = [
   { label: 'Avg. Engagement Time', value: '1m 42s', delta: '+6.3%', trend: [12, 13, 14, 14, 15, 17, 18] },
 ]
 
-export const dashboardSeries = [
+export const dashboardSeries = relabelRecentWeekSeries([
   { label: 'May 12', value: 62000 },
   { label: 'May 13', value: 101000 },
   { label: 'May 14', value: 76000 },
@@ -49,7 +51,7 @@ export const dashboardSeries = [
   { label: 'May 16', value: 98000 },
   { label: 'May 17', value: 127000 },
   { label: 'May 18', value: 149000 },
-]
+])
 
 export const dashboardTopProjects = [
   { name: 'Aegis', pageViews: '1.29M', uniqueVisitors: '456K', share: 100 },
@@ -103,7 +105,7 @@ export const recentEvents = [
     time: '10:24:18',
     event: 'button_click',
     project: 'Aegis',
-    location: '/pricing',
+    location: '/privacy',
     device: 'Mobile',
     browser: 'Safari',
     country: 'DE',
@@ -121,7 +123,7 @@ export const recentEvents = [
     time: '10:21:52',
     event: 'form_submit',
     project: 'VDO Fleet',
-    location: '/contact-sales',
+    location: '/contact',
     device: 'Mobile',
     browser: 'Chrome',
     country: 'IT',
@@ -145,7 +147,7 @@ export const projectMetrics = [
   { label: 'Live Visitors', value: '48', delta: 'Live', trend: [5, 6, 4, 8, 7, 9, 8], live: true },
 ]
 
-export const projectSeries = [
+export const projectSeries = relabelRecentWeekSeries([
   { label: 'May 12', value: 55000 },
   { label: 'May 13', value: 89000 },
   { label: 'May 14', value: 72000 },
@@ -153,12 +155,12 @@ export const projectSeries = [
   { label: 'May 16', value: 94000 },
   { label: 'May 17', value: 121000 },
   { label: 'May 18', value: 138000 },
-]
+])
 
 export const projectTopPages = [
   { label: '/overview', value: '285K' },
   { label: '/features', value: '210K' },
-  { label: '/pricing', value: '178K' },
+  { label: '/privacy', value: '178K' },
   { label: '/resources', value: '160K' },
   { label: '/contact', value: '96K' },
 ]

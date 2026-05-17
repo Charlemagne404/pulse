@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
-import { BrandLockup } from '../components/Brand'
+import { BrandLockup, ContinentalWordmark } from '../components/Brand'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { landingFeatureCards, landingPreviewMetrics, landingSeries } from '../data/mockData'
+import { STATUS_URL } from '../lib/siteLinks'
 
 const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
   const angle = (Math.PI * 2 * index) / 12 - Math.PI / 2
@@ -86,7 +87,7 @@ function TrustBadgeMark({ kind }: { kind: 'eu' | 'gdpr' }) {
 }
 
 export function HomePage() {
-  const { isAuthenticated, signIn } = useAuth()
+  const { isAuthenticated, signIn, user } = useAuth()
 
   return (
     <div className="site-shell">
@@ -98,18 +99,21 @@ export function HomePage() {
 
           <nav className="landing-nav" aria-label="Primary navigation">
             <a href="#features">Features</a>
-            <Link to="/pricing">Pricing</Link>
             <Link to="/docs">Docs</Link>
-            <Link to="/security">Security</Link>
-            <Link to="/status">Status</Link>
+            <Link to="/privacy">Privacy</Link>
+            <a href={STATUS_URL}>Status</a>
           </nav>
 
           <div className="landing-header-actions">
-            <a href="#login" className="text-link-button">
-              Log In
-            </a>
+            {isAuthenticated ? (
+              <span className="auth-session-chip">{user?.displayName || user?.email}</span>
+            ) : (
+              <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
+                Log In
+              </button>
+            )}
             <Link to="/dashboard" className="primary-button gold">
-              View Dashboard
+              {isAuthenticated ? 'Open Pulse' : 'View Dashboard'}
             </Link>
           </div>
         </header>
@@ -119,10 +123,10 @@ export function HomePage() {
 
           <div className="landing-copy">
             <span className="section-eyebrow">Privacy-first analytics</span>
-            <h1>Analytics that respect privacy. Insights that drive performance.</h1>
+            <h1>Privacy-first analytics you can set up and review yourself.</h1>
             <p>
-              Continental Pulse is a privacy-friendly analytics platform built for Continental websites and apps. Get
-              reliable insights without cookies, without personal data, and with full control.
+              Pulse gives you cookie-free analytics with a lightweight script, clear setup docs, and a dashboard you
+              can inspect on your own. No ad tracking, no fingerprinting, and no mystery collection.
             </p>
 
             <div className="hero-actions">
@@ -203,14 +207,11 @@ export function HomePage() {
         <footer className="landing-footer">
           <div className="landing-privacy-panel">
             <div className="landing-footer-copy">
-              <div className="feature-icon-shell">
-                <AppIcon name="globe" className="feature-icon" />
-              </div>
               <div>
                 <h2>Your data. Your control.</h2>
                 <p>
-                  Continental Pulse is built on strict privacy principles. We collect only what&apos;s necessary and
-                  never sell data. Learn more in our Privacy Policy.
+                  Pulse keeps collection narrow by default: no cookies, no fingerprinting, and no selling analytics
+                  data. Review the privacy details before you install anything.
                 </p>
               </div>
             </div>
@@ -235,15 +236,15 @@ export function HomePage() {
 
           <div className="landing-footer-bottom">
             <div className="footer-brandline">
-              <span className="footer-brandmark">Continental</span>
-              <span>&copy; 2024 Continental AG. All rights reserved.</span>
+              <ContinentalWordmark className="footer-continental-wordmark" />
+              <span>&copy; 2026 Continental. All rights reserved.</span>
             </div>
 
             <nav className="footer-links" aria-label="Footer links">
               <Link to="/legal/privacy">Privacy</Link>
               <Link to="/legal/imprint">Imprint</Link>
               <Link to="/legal/terms">Terms</Link>
-              <Link to="/status">Status</Link>
+              <a href={STATUS_URL}>Status</a>
             </nav>
 
             <div className="footer-utility-icons" aria-hidden="true">

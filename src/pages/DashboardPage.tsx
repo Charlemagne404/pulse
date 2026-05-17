@@ -17,38 +17,27 @@ import {
   recentEvents,
 } from '../data/mockData'
 import { buildSeriesForGranularity, cycleIndex, type GranularityOption } from '../lib/analytics'
+import { buildDemoRangePresets } from '../lib/demoDates'
 
-const dashboardRangePresets = [
-  {
-    label: '7D',
-    dates: 'May 12 - May 18, 2024',
-    series: dashboardSeries,
-  },
-  {
-    label: '30D',
-    dates: 'Apr 19 - May 18, 2024',
-    series: [
-      { label: 'Apr 19', value: 44000 },
-      { label: 'Apr 24', value: 63000 },
-      { label: 'Apr 29', value: 76000 },
-      { label: 'May 04', value: 81000 },
-      { label: 'May 09', value: 95000 },
-      { label: 'May 14', value: 112000 },
-      { label: 'May 18', value: 149000 },
-    ],
-  },
-  {
-    label: 'QTD',
-    dates: 'Mar 01 - May 18, 2024',
-    series: [
-      { label: 'Mar', value: 278000 },
-      { label: 'Late Mar', value: 342000 },
-      { label: 'Apr', value: 405000 },
-      { label: 'Late Apr', value: 462000 },
-      { label: 'May', value: 521000 },
-    ],
-  },
-]
+const dashboardRangePresets = buildDemoRangePresets({
+  sevenDaySeries: dashboardSeries,
+  thirtyDaySeries: [
+    { label: 'Apr 19', value: 44000 },
+    { label: 'Apr 24', value: 63000 },
+    { label: 'Apr 29', value: 76000 },
+    { label: 'May 04', value: 81000 },
+    { label: 'May 09', value: 95000 },
+    { label: 'May 14', value: 112000 },
+    { label: 'May 18', value: 149000 },
+  ],
+  quarterToDateSeries: [
+    { label: 'Mar', value: 278000 },
+    { label: 'Late Mar', value: 342000 },
+    { label: 'Apr', value: 405000 },
+    { label: 'Late Apr', value: 462000 },
+    { label: 'May', value: 521000 },
+  ],
+})
 
 const granularityOptions: GranularityOption[] = ['Day', 'Week', 'Month']
 

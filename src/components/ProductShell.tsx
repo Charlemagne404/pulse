@@ -52,7 +52,7 @@ export function ProductShell({ activeItem, pageTitle, toolbar, header, children 
             </Link>
             <Link to="/support" className="app-nav-link subtle">
               <AppIcon name="support" />
-              <span>Support</span>
+              <span>Help</span>
             </Link>
           </nav>
         </aside>

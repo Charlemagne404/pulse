@@ -6,6 +6,7 @@ import { MetricCard } from '../components/MetricCard'
 import { ProductShell } from '../components/ProductShell'
 import { projectDirectory, projectOverviewBySlug } from '../data/content'
 import { buildSeriesForGranularity, cycleIndex, type GranularityOption } from '../lib/analytics'
+import { STATUS_URL } from '../lib/siteLinks'
 
 const granularityOptions: GranularityOption[] = ['Day', 'Week', 'Month']
 
@@ -162,9 +163,9 @@ export function ProjectPage() {
         <section className="data-panel">
           <div className="panel-head">
             <h2>Top Countries</h2>
-            <Link to="/status" className="panel-link">
+            <a href={STATUS_URL} className="panel-link">
               Regional context
-            </Link>
+            </a>
           </div>
 
           <div className="country-panel">
