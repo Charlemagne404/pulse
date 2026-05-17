@@ -87,6 +87,8 @@ export const loadConfig = (): CollectorConfig => {
     corsOrigin: process.env.PULSE_CORS_ORIGIN || '*',
     maxBatchSize: parseInteger(process.env.PULSE_MAX_BATCH_SIZE, 25),
     maxBodyBytes: parseInteger(process.env.PULSE_MAX_BODY_BYTES, 262_144),
+    rateLimitWindowMs: parseInteger(process.env.PULSE_RATE_LIMIT_WINDOW_MS, 60_000),
+    rateLimitMaxRequests: parseInteger(process.env.PULSE_RATE_LIMIT_MAX_REQUESTS, 120),
     databasePath,
     legacySinkPath,
     rollupIntervalMs: parseInteger(process.env.PULSE_ROLLUP_INTERVAL_MS, 15_000),

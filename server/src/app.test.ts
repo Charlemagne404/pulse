@@ -11,15 +11,23 @@ const createConfig = (
   overrides: Partial<
     Pick<
       CollectorConfig,
-      'defaultRetentionMonths' | 'projectRetentionMonths' | 'rollupIntervalMs' | 'retentionIntervalMs'
+      | 'defaultRetentionMonths'
+      | 'projectRetentionMonths'
+      | 'rollupIntervalMs'
+      | 'retentionIntervalMs'
+      | 'maxBatchSize'
+      | 'rateLimitWindowMs'
+      | 'rateLimitMaxRequests'
     >
   > = {},
 ): CollectorConfig => ({
   host: '127.0.0.1',
   port: 0,
   corsOrigin: '*',
-  maxBatchSize: 25,
+  maxBatchSize: overrides.maxBatchSize ?? 25,
   maxBodyBytes: 262_144,
+  rateLimitWindowMs: overrides.rateLimitWindowMs ?? 60_000,
+  rateLimitMaxRequests: overrides.rateLimitMaxRequests ?? 120,
   databasePath: join(dir, 'pulse.sqlite'),
   legacySinkPath: join(dir, 'events.ndjson'),
   rollupIntervalMs: overrides.rollupIntervalMs ?? 25,
@@ -56,6 +64,12 @@ const startServer = async (config: CollectorConfig) => {
 
   const baseUrl = `http://${config.host}:${address.port}`
   return { server, baseUrl }
+}
+
+const buildUtcIso = (dayOffset: number, hour: number, minute = 0) => {
+  const now = new Date()
+  const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return new Date(todayStartMs + dayOffset * 24 * 60 * 60 * 1000 + hour * 60 * 60 * 1000 + minute * 60 * 1000).toISOString()
 }
 
 const stopServer = async (server: ReturnType<typeof createPulseServer>) => {
@@ -369,6 +383,138 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
     assert.equal(filtered.rows[0]?.path, '/docs/api')
     assert.equal(filtered.rows[0]?.countryCode, 'DE')
     assert.equal(filtered.rows[0]?.deviceType, 'mobile')
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('phase 6 endpoints expose live alerts, exports, and workspace settings', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(
+    createConfig(dir, {
+      maxBatchSize: 128,
+    }),
+  )
+
+  try {
+    const events = [
+      ...Array.from({ length: 36 }, (_, index) => ({
+        eventId: `baseline_${index}`,
+        eventName: 'page_view',
+        occurredAt: buildUtcIso(-2, 9, index),
+        projectId: 'aegis',
+        page: { path: `/baseline/${index}` },
+        consent: { state: 'granted', mode: 'standard' },
+        identity: { sessionId: `sess_baseline_${index}`, visitorKey: `visitor_baseline_${index}` },
+      })),
+      ...Array.from({ length: 8 }, (_, index) => ({
+        eventId: `current_${index}`,
+        eventName: 'page_view',
+        occurredAt: buildUtcIso(-1, 9, index),
+        projectId: 'aegis',
+        page: { path: `/current/${index}` },
+        consent: { state: 'denied', mode: 'strict' },
+        identity: { sessionId: `sess_current_${index}`, visitorKey: `visitor_current_${index}` },
+      })),
+    ]
+
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ events }),
+    })
+    assert.equal(collectResponse.status, 202)
+
+    const alertsResponse = await fetch(`${baseUrl}/v1/alerts`)
+    assert.equal(alertsResponse.status, 200)
+    assert.equal(alertsResponse.headers.get('cache-control'), 'no-store')
+    const alerts = (await alertsResponse.json()) as {
+      summary: { activeRules: number }
+      rules: Array<{ id: string; status: string }>
+    }
+    assert.ok(alerts.summary.activeRules >= 1)
+    assert.equal(alerts.rules.find((rule) => rule.id === 'workspace-traffic-drop')?.status, 'active')
+
+    const exportsResponse = await fetch(`${baseUrl}/v1/exports`)
+    assert.equal(exportsResponse.status, 200)
+    const exportsBody = (await exportsResponse.json()) as {
+      summary: { scheduledExports: number; manualExportFormat: string }
+      schedules: Array<{ id: string }>
+      recentRuns: Array<{ format: string }>
+    }
+    assert.equal(exportsBody.summary.scheduledExports, 2)
+    assert.equal(exportsBody.summary.manualExportFormat, 'csv')
+    assert.equal(exportsBody.schedules.length, 2)
+    assert.ok(exportsBody.recentRuns.some((run) => run.format === 'csv'))
+
+    const workspaceResponse = await fetch(`${baseUrl}/v1/workspace`)
+    assert.equal(workspaceResponse.status, 200)
+    const workspace = (await workspaceResponse.json()) as {
+      projects: Array<{ projectId: string; retentionMonths: number }>
+      operations: { rateLimitWindowMs: number; rateLimitMaxRequests: number }
+      roles: Array<{ role: string }>
+    }
+    assert.equal(workspace.projects.length, 4)
+    assert.ok(workspace.projects.some((project) => project.projectId === 'aegis' && project.retentionMonths === 13))
+    assert.equal(workspace.operations.rateLimitWindowMs, 60_000)
+    assert.equal(workspace.operations.rateLimitMaxRequests, 120)
+    assert.ok(workspace.roles.some((role) => role.role === 'owner'))
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('collector enforces per-client rate limiting before processing the request body', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(
+    createConfig(dir, {
+      rateLimitWindowMs: 60_000,
+      rateLimitMaxRequests: 1,
+    }),
+  )
+
+  try {
+    const firstResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'rate_limit_event_0001',
+            eventName: 'page_view',
+            occurredAt: buildUtcIso(0, 10),
+            projectId: 'aegis',
+            page: { path: '/rate-limit' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'sess_rate_limit_0001', visitorKey: 'visitor_rate_limit_0001' },
+          },
+        ],
+      }),
+    })
+    assert.equal(firstResponse.status, 202)
+
+    const secondResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'rate_limit_event_0002',
+            eventName: 'page_view',
+            occurredAt: buildUtcIso(0, 10, 1),
+            projectId: 'aegis',
+            page: { path: '/rate-limit' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'sess_rate_limit_0002', visitorKey: 'visitor_rate_limit_0002' },
+          },
+        ],
+      }),
+    })
+    assert.equal(secondResponse.status, 429)
+
+    const body = (await secondResponse.json()) as { error: string; message: string }
+    assert.equal(body.error, 'rate_limited')
+    assert.match(body.message, /try again/i)
   } finally {
     await stopServer(server)
   }

@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { badRequest, isHttpError, notFound, payloadTooLarge } from './errors.js'
+import { badRequest, isHttpError, notFound, payloadTooLarge, tooManyRequests } from './errors.js'
+import { buildAlertsResponse, buildExportsResponse, buildWorkspaceSettingsResponse } from './operations.js'
 import { SqliteEventStore } from './store.js'
 import type { CollectRequestBody, CollectorConfig, StoredPulseEvent } from './types.js'
 import { validateEvent } from './validation.js'
@@ -7,9 +8,12 @@ import { validateEvent } from './validation.js'
 const buildJsonHeaders = (corsOrigin: string) =>
   ({
     'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
     'access-control-allow-origin': corsOrigin,
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'same-origin',
   }) as const
 
 const send = (
@@ -74,6 +78,42 @@ const ensureKnownProjectId = (config: CollectorConfig, projectId: string) => {
   }
 }
 
+const getClientAddress = (request: IncomingMessage) => {
+  const forwardedFor = request.headers['x-forwarded-for']
+  if (typeof forwardedFor === 'string') {
+    return forwardedFor.split(',')[0]?.trim() || 'unknown'
+  }
+
+  return request.socket.remoteAddress || 'unknown'
+}
+
+const enforceRateLimit = (
+  bucketStore: Map<string, { startedAtMs: number; count: number }>,
+  request: IncomingMessage,
+  config: CollectorConfig,
+) => {
+  if (config.rateLimitMaxRequests <= 0 || config.rateLimitWindowMs <= 0) {
+    return
+  }
+
+  const nowMs = Date.now()
+  const clientKey = getClientAddress(request)
+  const current = bucketStore.get(clientKey)
+
+  if (!current || nowMs - current.startedAtMs >= config.rateLimitWindowMs) {
+    bucketStore.set(clientKey, { startedAtMs: nowMs, count: 1 })
+    return
+  }
+
+  if (current.count >= config.rateLimitMaxRequests) {
+    throw tooManyRequests(
+      `Rate limit exceeded for ${clientKey}. Try again after ${Math.ceil(config.rateLimitWindowMs / 1000)} seconds.`,
+    )
+  }
+
+  current.count += 1
+}
+
 const applyDuplicateGuards = (acceptedEvents: StoredPulseEvent[], existingEventIds: Set<string>) => {
   const seenInRequest = new Set<string>()
 
@@ -105,6 +145,7 @@ const applyDuplicateGuards = (acceptedEvents: StoredPulseEvent[], existingEventI
 }
 
 export const createPulseServer = (config: CollectorConfig, store = new SqliteEventStore(config)): Server => {
+  const requestBuckets = new Map<string, { startedAtMs: number; count: number }>()
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET'
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
@@ -126,6 +167,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
 
     if (method === 'POST' && url.pathname === '/v1/collect') {
       try {
+        enforceRateLimit(requestBuckets, request, config)
         const body = await readJsonBody(request, config.maxBodyBytes)
         const events = Array.isArray(body.events) ? body.events : null
 
@@ -204,6 +246,33 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
         })
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected collector error.')
+      }
+      return
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/alerts') {
+      try {
+        send(response, config.corsOrigin, 200, await buildAlertsResponse(store, config))
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected alerts error.')
+      }
+      return
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/exports') {
+      try {
+        send(response, config.corsOrigin, 200, await buildExportsResponse(store, config))
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected export pipeline error.')
+      }
+      return
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/workspace') {
+      try {
+        send(response, config.corsOrigin, 200, await buildWorkspaceSettingsResponse(store, config))
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected workspace settings error.')
       }
       return
     }

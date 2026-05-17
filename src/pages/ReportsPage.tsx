@@ -4,23 +4,26 @@ import { ProductShell } from '../components/ProductShell'
 import { reportLibrary } from '../data/content'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchOverviewAnalytics, fetchPagesReport, fetchReferrersReport } from '../lib/analyticsApi'
+import { fetchExports } from '../lib/productApi'
 import {
   formatAnalyticsRangeLabel,
   formatBreakdownShare,
   formatCount,
+  formatTimestampLabel,
 } from '../lib/analyticsUi'
 
 export function ReportsPage() {
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     'reports:index',
     async (signal) => {
-      const [overview, pagesReport, referrersReport] = await Promise.all([
+      const [overview, pagesReport, referrersReport, exports] = await Promise.all([
         fetchOverviewAnalytics({}, signal),
         fetchPagesReport({}, signal),
         fetchReferrersReport({}, signal),
+        fetchExports(signal),
       ])
 
-      return { overview, pagesReport, referrersReport }
+      return { overview, pagesReport, referrersReport, exports }
     },
   )
 
@@ -47,8 +50,8 @@ export function ReportsPage() {
           <h2>Ready-to-share reporting surfaces</h2>
           <p>
             {data
-              ? `Use the current workspace rollups from ${formatAnalyticsRangeLabel(data.overview.range)} for review meetings, then open the deeper report pages for content and acquisition analysis.`
-              : 'Use executive rollups for weekly review meetings, then open the deeper report pages for content and acquisition analysis.'}
+              ? `Use the current workspace rollups from ${formatAnalyticsRangeLabel(data.overview.range)} for self-serve reviews, then open the deeper report pages for content and acquisition analysis.`
+              : 'Use the executive rollup for recurring reviews, then open the deeper report pages for content and acquisition analysis.'}
           </p>
         </div>
         <Link to="/dashboard" className="secondary-button">
@@ -106,17 +109,59 @@ export function ReportsPage() {
 
       <section className="data-panel page-intro-panel">
         <div>
-          <h2>Weekly reporting rhythm</h2>
+          <h2>Export pipeline</h2>
           <p>
             {data
-              ? `Most teams review the dashboard every day, then use the ${formatCount(data.pagesReport.trackedPages)} tracked pages and ${formatCount(data.referrersReport.trackedReferrers)} tracked referrers in the deeper weekly reporting flow.`
-              : 'Most teams review the dashboard every day, the report deep dives every week, and the status and alerts surfaces before major launches.'}
+              ? `${formatCount(data.exports.summary.scheduledExports)} scheduled export flows are configured. ${data.exports.summary.delayedExports > 0 ? `${formatCount(data.exports.summary.delayedExports)} are delayed while rollups catch up.` : 'The export queue is current.'}`
+              : 'Scheduled PDF summaries and manual CSV exports appear here once the export pipeline loads.'}
           </p>
         </div>
         <Link to="/alerts" className="secondary-button">
           Review Alerts
         </Link>
       </section>
+
+      {data ? (
+        <section className="resource-card-grid">
+          {data.exports.schedules.map((schedule) => (
+            <article key={schedule.id} className="data-panel resource-card">
+              <span className="country-pill">{schedule.status === 'delayed' ? 'Delayed' : 'On schedule'}</span>
+              <h2>{schedule.name}</h2>
+              <p>{schedule.detail}</p>
+              <p className="resource-card-meta">
+                {schedule.cadence === 'weekly' ? 'Weekly' : 'Monthly'} PDF summary · Next run {formatTimestampLabel(schedule.nextRunAt)}
+              </p>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {data ? (
+        <section className="data-panel">
+          <div className="panel-head">
+            <h2>Recent export runs</h2>
+            <Link to="/settings" className="panel-link">
+              Export Settings
+            </Link>
+          </div>
+
+          <div className="timeline-list">
+            {data.exports.recentRuns.map((run) => (
+              <article key={run.id} className="timeline-row">
+                <span>{formatTimestampLabel(run.completedAt || run.startedAt)}</span>
+                <div>
+                  <strong>
+                    {run.name} · {run.status}
+                  </strong>
+                  <p>
+                    {run.detail} {run.rowCount > 0 ? `${formatCount(run.rowCount)} rows or summary blocks were included.` : ''}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </ProductShell>
   )
 }

@@ -84,6 +84,8 @@ export interface CollectorConfig {
   corsOrigin: string
   maxBatchSize: number
   maxBodyBytes: number
+  rateLimitWindowMs: number
+  rateLimitMaxRequests: number
   databasePath: string
   legacySinkPath: string
   rollupIntervalMs: number
@@ -200,5 +202,141 @@ export interface RecentEventsPageResponse {
     limit: number
     nextCursor: string | null
     hasMore: boolean
+  }
+}
+
+export interface ConsentSnapshot {
+  granted: number
+  denied: number
+  unknown: number
+  strictMode: number
+  standardMode: number
+}
+
+export type AlertRuleStatus = 'ok' | 'monitoring' | 'active'
+export type AlertSeverity = 'info' | 'warning' | 'critical'
+
+export interface AlertRuleEvaluation {
+  id: string
+  name: string
+  scopeLabel: string
+  owner: string
+  status: AlertRuleStatus
+  severity: AlertSeverity
+  metricLabel: string
+  thresholdLabel: string
+  currentValue: number
+  baselineValue: number
+  deltaPercent: number
+  detail: string
+}
+
+export interface AlertTimelineItem {
+  occurredAt: string
+  severity: AlertSeverity
+  title: string
+  detail: string
+}
+
+export interface AlertsResponse {
+  generatedAt: string
+  evaluationRange: {
+    currentFrom: string
+    currentTo: string
+    baselineFrom: string
+    baselineTo: string
+  }
+  summary: {
+    activeRules: number
+    monitoringRules: number
+    okRules: number
+  }
+  rules: AlertRuleEvaluation[]
+  activity: AlertTimelineItem[]
+}
+
+export type ExportScheduleStatus = 'ok' | 'delayed'
+export type ExportRunStatus = 'succeeded' | 'delayed' | 'pending'
+
+export interface ExportSchedule {
+  id: string
+  name: string
+  reportSlug: 'executive' | 'pages' | 'referrers'
+  cadence: 'weekly' | 'monthly'
+  format: 'pdf_summary'
+  owner: string
+  recipients: string[]
+  lastRunAt: string
+  nextRunAt: string
+  status: ExportScheduleStatus
+  detail: string
+}
+
+export interface ExportRun {
+  id: string
+  scheduleId: string
+  name: string
+  status: ExportRunStatus
+  format: 'pdf_summary' | 'csv'
+  scopeLabel: string
+  startedAt: string
+  completedAt: string | null
+  rowCount: number
+  detail: string
+}
+
+export interface ExportsResponse {
+  generatedAt: string
+  summary: {
+    scheduledExports: number
+    delayedExports: number
+    manualExportFormat: 'csv'
+    scheduledExportFormat: 'pdf_summary'
+  }
+  schedules: ExportSchedule[]
+  recentRuns: ExportRun[]
+}
+
+export interface WorkspaceRoleDefinition {
+  role: 'viewer' | 'editor' | 'owner'
+  can: string[]
+  cannot: string[]
+}
+
+export interface WorkspaceProjectSetting {
+  projectId: string
+  projectName: string
+  retentionMonths: RetentionMonths
+  status: 'live' | 'idle'
+  lastEventAt: string | null
+}
+
+export interface WorkspaceSettingsResponse {
+  generatedAt: string
+  workspace: {
+    id: string
+    name: string
+    roleModel: 'workspace_scoped'
+    defaultRetentionMonths: RetentionMonths
+    allowedRetentionMonths: RetentionMonths[]
+  }
+  roles: WorkspaceRoleDefinition[]
+  projects: WorkspaceProjectSetting[]
+  controls: Array<{
+    title: string
+    body: string
+    bullets: string[]
+  }>
+  operations: {
+    healthStatus: 'ok' | 'degraded'
+    corsOrigin: string
+    maxBatchSize: number
+    maxBodyBytes: number
+    rateLimitWindowMs: number
+    rateLimitMaxRequests: number
+    rollupIntervalMs: number
+    retentionIntervalMs: number
+    lastRollupAt: string | null
+    lastRetentionAt: string | null
   }
 }

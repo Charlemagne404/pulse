@@ -14,6 +14,14 @@ const timeFormatter = new Intl.DateTimeFormat('en-US', {
   second: '2-digit',
 })
 
+const dateTimeFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'UTC',
+})
+
 const shortDayFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: '2-digit',
@@ -109,6 +117,15 @@ export const formatBreakdownShare = (value?: number) => formatPercent(value || 0
 export const formatRecentEventTime = (occurredAt: string) => {
   const date = new Date(occurredAt)
   return Number.isNaN(date.getTime()) ? occurredAt : timeFormatter.format(date)
+}
+
+export const formatTimestampLabel = (value: string | null) => {
+  if (!value) {
+    return 'Not yet recorded'
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : dateTimeFormatter.format(date)
 }
 
 export const formatCountryCode = (countryCode: string) => {

@@ -199,7 +199,7 @@ Pulse needs more than collection and dashboard reads to become a complete produc
 
 ### Status
 
-- Planned
+- In progress
 
 ## Current Position
 
@@ -212,7 +212,8 @@ That means:
 - Basic analytics query APIs exist
 - The backend now uses SQLite-backed raw storage instead of querying only the NDJSON sink
 - Daily rollups, retention enforcement, and recent-event pagination now exist on the server
-- The frontend is not yet fully connected to live data
+- The frontend now reads live analytics on the reporting, alerts, and workspace-settings surfaces
+- Phase 6 now has initial live alerts, export-pipeline visibility, workspace settings APIs, and collector rate limiting
 
 ## Recommended Next Move
 

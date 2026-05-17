@@ -7,6 +7,7 @@ import type {
   AnalyticsBreakdownRow,
   AnalyticsGranularity,
   AnalyticsRange,
+  ConsentSnapshot,
   CollectorConfig,
   OverviewAnalyticsResponse,
   OverviewTopProjectRow,
@@ -676,6 +677,60 @@ export class SqliteEventStore {
       searchLedVisits,
       rows: summarizeBreakdown(referrerCounts, totalVisits, 10),
     } satisfies ReferrersReportResponse
+  }
+
+  async getConsentSnapshot(fromRaw: string | null, toRaw: string | null, projectId?: string): Promise<ConsentSnapshot> {
+    await this.ensureCurrentReadModel()
+    const resolved = resolveRange(this.getBoundsSync(projectId), fromRaw, toRaw, null)
+    const projectClause = projectId ? 'AND project_id = ?' : ''
+    const row = this.db
+      .prepare(`
+        SELECT
+          SUM(CASE WHEN consent_state = 'granted' THEN 1 ELSE 0 END) AS granted,
+          SUM(CASE WHEN consent_state = 'denied' THEN 1 ELSE 0 END) AS denied,
+          SUM(CASE WHEN consent_state = 'unknown' THEN 1 ELSE 0 END) AS unknown,
+          SUM(CASE WHEN consent_mode = 'strict' THEN 1 ELSE 0 END) AS strict_mode,
+          SUM(CASE WHEN consent_mode = 'standard' THEN 1 ELSE 0 END) AS standard_mode
+        FROM raw_events
+        WHERE occurred_at_ms >= ?
+          AND occurred_at_ms <= ?
+          ${projectClause}
+      `)
+      .get(
+        resolved.fromMs,
+        resolved.toMs,
+        ...(projectId ? [projectId] : []),
+      ) as
+      | {
+          granted: number | null
+          denied: number | null
+          unknown: number | null
+          strict_mode: number | null
+          standard_mode: number | null
+        }
+      | undefined
+
+    return {
+      granted: row?.granted || 0,
+      denied: row?.denied || 0,
+      unknown: row?.unknown || 0,
+      strictMode: row?.strict_mode || 0,
+      standardMode: row?.standard_mode || 0,
+    }
+  }
+
+  async getLatestEventAt(projectId?: string): Promise<string | null> {
+    await this.ensureCurrentReadModel()
+    const projectClause = projectId ? 'WHERE project_id = ?' : ''
+    const row = this.db
+      .prepare(`
+        SELECT MAX(occurred_at) AS last_occurred_at
+        FROM raw_events
+        ${projectClause}
+      `)
+      .get(...(projectId ? [projectId] : [])) as { last_occurred_at: string | null } | undefined
+
+    return row?.last_occurred_at || null
   }
 
   async getRecentEventsPage(query: RecentEventsQuery): Promise<RecentEventsPageResponse> {
