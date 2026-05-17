@@ -14,6 +14,8 @@ This phase covers:
 - PII rejection
 - Anonymous identifier handling
 - Raw event persistence
+- Duplicate event rejection by `eventId`
+- Corruption-tolerant raw event reads
 - Health endpoint for deployment and auth-adjacent integration
 
 This phase does not yet cover:
@@ -51,6 +53,9 @@ Returns:
 - Timestamp
 - Storage mode
 - Config summary
+- Stored event count
+- Invalid line count
+- Duplicate event count
 
 ### `POST /v1/collect`
 
@@ -88,6 +93,7 @@ The collector implements the following policy:
 - Raw PII patterns are rejected in properties
 - Query strings and URL fragments are stripped from stored paths
 - Referrers are stored as hostnames, not full URLs
+- Duplicate `eventId` values are rejected
 
 ## Anonymous Identifier Policy
 
@@ -133,6 +139,16 @@ The collector supports environment configuration for:
 - File sink path
 
 Defaults are intentionally aligned with the current mock projects so the scaffold is usable immediately.
+
+## Reliability Improvements
+
+The current collector implementation now includes:
+
+- Structured client vs server error responses
+- `413` handling for oversized request bodies
+- Duplicate detection within a request and across previously stored events
+- Health degradation reporting when stored event lines are malformed
+- Automated server tests for duplicate rejection, corrupted-line tolerance, project validation, and path sanitization
 
 ## Next Steps After This Slice
 

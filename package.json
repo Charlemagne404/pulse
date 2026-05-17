@@ -10,7 +10,8 @@
     "build:server": "tsc -p server/tsconfig.json",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start:server": "npm run build:server && node server/dist/server.js"
+    "start:server": "npm run build:server && node server/dist/server.js",
+    "test:server": "npm run build:server && node --test server/dist/**/*.test.js"
   },
   "dependencies": {
     "react": "^19.2.6",
