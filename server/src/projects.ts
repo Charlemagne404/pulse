@@ -3,15 +3,14 @@ export interface ProjectMetadata {
   name: string
 }
 
-export const PROJECTS: ProjectMetadata[] = [
-  { id: 'aegis', name: 'Aegis' },
-  { id: 'contitech', name: 'ContiTech' },
-  { id: 'vdo-fleet', name: 'VDO Fleet' },
-  { id: 'contitrade', name: 'ContiTrade' },
-]
+export const formatProjectName = (projectId: string) =>
+  projectId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 
-const projectMap = new Map(PROJECTS.map((project) => [project.id, project]))
-
-export const getProjectMetadata = (projectId: string): ProjectMetadata => {
-  return projectMap.get(projectId) || { id: projectId, name: projectId }
-}
+export const getProjectMetadata = (projectId: string): ProjectMetadata => ({
+  id: projectId,
+  name: formatProjectName(projectId) || projectId,
+})

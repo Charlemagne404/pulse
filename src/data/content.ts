@@ -1,4 +1,3 @@
-import { buildDemoRangePresets, formatTimelineLabel } from '../lib/demoDates'
 import { STATUS_URL } from '../lib/siteLinks'
 
 export interface SeriesPoint {
@@ -84,7 +83,7 @@ export const staticPages: Record<string, StaticPageContent> = {
     eyebrow: 'Operations',
     title: 'Live service status for collection, dashboarding, and exports.',
     description:
-      'Keep rollout teams aligned with current service health, maintenance windows, and the last resolved incidents across the Pulse platform.',
+      'Check current service health, maintenance windows, and the latest resolved incidents across the Pulse platform.',
     cards: [
       { label: 'Collection API', value: 'Operational', detail: '99.99% uptime across the last 30 days.' },
       { label: 'Dashboard', value: 'Operational', detail: 'Average render latency below 420ms this week.' },
@@ -103,7 +102,7 @@ export const staticPages: Record<string, StaticPageContent> = {
       },
       {
         title: 'Maintenance policy',
-        body: 'Planned changes are announced ahead of time and scheduled outside the primary reporting windows used by regional product teams.',
+        body: 'Planned changes are announced ahead of time and scheduled to minimize disruption to normal reporting.',
         bullets: ['Advance notice in help docs and status updates', 'Post-maintenance validation run', 'Rollback plan for every release window'],
       },
     ],
@@ -171,24 +170,24 @@ export const staticPages: Record<string, StaticPageContent> = {
   },
   terms: {
     eyebrow: 'Legal',
-    title: 'Terms for using Pulse across approved digital properties.',
+    title: 'Terms for using Pulse.',
     description:
-      'These terms summarize the operational expectations for using the Pulse workspace, APIs, reporting surfaces, and export capabilities.',
+      'These terms summarize the basic expectations for using the Pulse workspace, APIs, reporting surfaces, and export capabilities.',
     cards: [
-      { label: 'Eligible use', value: 'Approved properties', detail: 'Projects require an internal owner and declared business purpose.' },
-      { label: 'Access model', value: 'Least privilege', detail: 'Workspace access should match role and reporting need.' },
-      { label: 'Exports', value: 'Governed', detail: 'Downloaded data remains subject to internal policy.' },
+      { label: 'Eligible use', value: 'Your sites and apps', detail: 'Projects should represent sites or apps you are authorized to measure.' },
+      { label: 'Access model', value: 'Workspace roles', detail: 'Workspace access should match the reporting and setup work each person needs to do.' },
+      { label: 'Exports', value: 'Limited by role', detail: 'Manual exports are CSV and scheduled exports are PDF summaries managed inside the workspace.' },
     ],
     sections: [
       {
         title: 'Workspace use',
-        body: 'Each project must have a named owner responsible for collection setup, event naming, and reviewing shared dashboards for accuracy.',
-        bullets: ['Define a tracking plan before launch', 'Review access on a regular cadence', 'Use clear project naming and ownership'],
+        body: 'Use clear project names, keep the install path simple, and review dashboards after setup so the workspace stays easy to understand.',
+        bullets: ['Define a short tracking plan before launch', 'Review access on a regular cadence', 'Keep project names and event names readable'],
       },
       {
         title: 'Data handling',
-        body: 'Teams exporting or distributing Pulse data remain responsible for using it in line with internal privacy and security requirements.',
-        bullets: ['Limit exports to business need', 'Avoid re-identification attempts', 'Respect retention guidance for downstream files'],
+        body: 'Anyone exporting or sharing Pulse data remains responsible for using it in line with the product privacy rules and the policies that apply to their organization.',
+        bullets: ['Limit exports to real business need', 'Avoid re-identification attempts', 'Respect retention guidance for downstream files'],
       },
       {
         title: 'Operational expectations',
@@ -255,14 +254,14 @@ export const docsSections: DocsSectionContent[] = [
     summary: 'Add the client to the page and configure the collection endpoint.',
     body: [
       'Place the script in the document head so it loads early without blocking the main content. The script can be loaded once and reused across marketing pages and application shells.',
-      'Keep environment-specific endpoint configuration in one place so production and staging do not mix events during rollout validation.',
+      'Keep environment-specific endpoint configuration in one place so production and staging do not mix events during setup validation.',
     ],
     code: {
       title: 'script tag',
       code: String.raw`<script
   defer
   src="https://cdn.pulse.continental.com/pulse.js"
-  data-site="continental.com"
+  data-site="example.com"
   data-collect="https://api.pulse.continental.com"
 ></script>`,
     },
@@ -271,7 +270,7 @@ export const docsSections: DocsSectionContent[] = [
     title: 'Project Setup',
     summary: 'Initialize a project and confirm the default collection mode.',
     body: [
-      'Call init exactly once in the application shell. Set the project identifier, confirm the base endpoint, and disable debug mode in production environments.',
+      'Call init exactly once in the application shell. Set the project identifier, start in strict mode, and disable debug mode in production environments.',
       'Pair setup with a lightweight tracking plan that documents the primary KPIs and the events that matter for launch readiness.',
     ],
     code: {
@@ -279,8 +278,9 @@ export const docsSections: DocsSectionContent[] = [
       code: String.raw`window.pulse = window.pulse || [];
 
 pulse.init({
-  projectId: 'aegis',
+  projectId: 'marketing-site',
   debug: false,
+  consentDefault: 'strict',
 });`,
     },
   },
@@ -291,13 +291,13 @@ pulse.init({
       'For multi-template websites, confirm that page titles and canonical route labels stay stable even when modules render different content blocks.',
       'For apps, treat meaningful route transitions as page views and keep naming aligned with the product journey rather than internal route implementation details.',
     ],
-    bullets: ['Normalize route labels', 'Track route transitions explicitly for apps', 'Keep titles readable for business teams'],
+    bullets: ['Normalize route labels', 'Track route transitions explicitly for apps', 'Keep titles readable in reports'],
   },
   {
     title: 'Custom Events',
     summary: 'Track product interactions that explain intent and adoption.',
     body: [
-      'Use custom events sparingly and prefer clear verbs tied to business meaning. The best events describe actions like demo_opened, quote_requested, or file_downloaded.',
+      'Use custom events sparingly and prefer clear verbs tied to business meaning. The best events describe actions like signup_started, quote_requested, or demo_opened.',
       'Keep payloads small, use stable property names, and avoid including freeform values that are difficult to analyze or review later.',
     ],
     code: {
@@ -369,15 +369,15 @@ pulse.track('file_download', { asset: 'product_sheet' });`,
     title: 'Script API',
     summary: 'Configure the bootstrap script without shipping environment-specific code paths everywhere.',
     body: [
-      'The script tag accepts data attributes for site and endpoint configuration. Keep those settings close to the deployment environment so they can be reviewed during rollout.',
-      'Teams with multi-brand setups typically centralize script configuration in the site shell or server-side template layer rather than inside page modules.',
+      'The script tag accepts data attributes for site and endpoint configuration. Keep those settings close to the deployment environment so they can be reviewed during setup.',
+      'If you manage multiple sites, centralize script configuration in the site shell or server-side template layer rather than inside page modules.',
     ],
     code: {
       title: 'script configuration',
-      code: String.raw`<script
+  code: String.raw`<script
   defer
   src="https://cdn.pulse.continental.com/pulse.js"
-  data-site="aegis"
+  data-site="marketing-site"
   data-collect="https://api.pulse.continental.com"
 ></script>`,
     },
@@ -405,333 +405,11 @@ pulse.track('file_download', { asset: 'product_sheet' });`,
     summary: 'Recent product changes worth knowing about.',
     body: [
       'Latest release: Added workspace alerts and shared report landing pages for top referrers and content performance.',
-      'Previous release: Expanded project-level settings visibility and improved the docs coverage for SPA routing and consent mode.',
+      'Previous release: Improved workspace settings visibility and expanded the docs coverage for SPA routing and consent mode.',
     ],
     bullets: ['Recent: alerting and report deep links', 'Earlier: docs expansion', 'Earlier: export queue improvements'],
   },
 ]
-
-export interface ProjectSummary {
-  slug: string
-  name: string
-  domain: string
-  owner: string
-  region: string
-  status: string
-  icon: 'shield' | 'chart' | 'bolt' | 'globe'
-  note: string
-}
-
-export const projectDirectory: ProjectSummary[] = [
-  {
-    slug: 'aegis',
-    name: 'Aegis',
-    domain: 'https://aegis.continental.com',
-    owner: 'Product Security',
-    region: 'Global',
-    status: 'Active',
-    icon: 'shield',
-    note: 'Highest growth this quarter with strong CTA performance on solution pages.',
-  },
-  {
-    slug: 'contitech',
-    name: 'ContiTech',
-    domain: 'https://contitech.continental.com',
-    owner: 'Industrial Solutions',
-    region: 'EMEA',
-    status: 'Active',
-    icon: 'chart',
-    note: 'Strong returning traffic from partner campaigns and product-sheet downloads.',
-  },
-  {
-    slug: 'vdo-fleet',
-    name: 'VDO Fleet',
-    domain: 'https://fleet.vdo.com',
-    owner: 'Fleet Services',
-    region: 'Europe',
-    status: 'Monitoring',
-    icon: 'bolt',
-    note: 'Focused on lead quality and conversion lift across mobile support journeys.',
-  },
-  {
-    slug: 'contitrade',
-    name: 'ContiTrade',
-    domain: 'https://contitrade.continental.com',
-    owner: 'Retail Operations',
-    region: 'North America',
-    status: 'Pilot',
-    icon: 'globe',
-    note: 'New rollout concentrating on appointment booking and store-location engagement.',
-  },
-]
-
-export interface ProjectOverviewContent {
-  metrics: MetricSnapshot[]
-  rangePresets: RangePreset[]
-  topPages: { label: string; value: string }[]
-  referrers: { label: string; value: string }[]
-  eventTable: { event: string; count: string }[]
-  countryMix: { label: string; share: string }[]
-}
-
-export const projectOverviewBySlug: Record<string, ProjectOverviewContent> = {
-  aegis: {
-    metrics: [
-      { label: 'Page Views', value: '1.28M', delta: '+14.2%', trend: [20, 23, 24, 22, 26, 29, 31] },
-      { label: 'Unique Visitors', value: '456K', delta: '+9.1%', trend: [13, 15, 16, 14, 18, 20, 21] },
-      { label: 'Avg. Engagement Time', value: '1m 56s', delta: '+7.4%', trend: [12, 12, 14, 15, 16, 17, 18] },
-      { label: 'Bounce Rate', value: '38.7%', delta: '-2.8%', trend: [32, 31, 29, 28, 27, 25, 24] },
-      { label: 'Live Visitors', value: '48', delta: 'Live', trend: [5, 6, 4, 8, 7, 9, 8], live: true },
-    ],
-    rangePresets: buildDemoRangePresets({
-      sevenDaySeries: [
-        { label: 'May 12', value: 55000 },
-        { label: 'May 13', value: 89000 },
-        { label: 'May 14', value: 72000 },
-        { label: 'May 15', value: 108000 },
-        { label: 'May 16', value: 94000 },
-        { label: 'May 17', value: 121000 },
-        { label: 'May 18', value: 138000 },
-      ],
-      thirtyDaySeries: [
-        { label: 'Apr 19', value: 43000 },
-        { label: 'Apr 24', value: 52000 },
-        { label: 'Apr 29', value: 61000 },
-        { label: 'May 04', value: 69000 },
-        { label: 'May 09', value: 84000 },
-        { label: 'May 14', value: 96000 },
-        { label: 'May 18', value: 138000 },
-      ],
-      quarterToDateSeries: [
-        { label: 'Mar', value: 310000 },
-        { label: 'Late Mar', value: 364000 },
-        { label: 'Apr', value: 412000 },
-        { label: 'Late Apr', value: 458000 },
-        { label: 'May', value: 521000 },
-      ],
-    }),
-    topPages: [
-      { label: '/overview', value: '285K' },
-      { label: '/features', value: '210K' },
-      { label: '/privacy', value: '178K' },
-      { label: '/resources', value: '160K' },
-      { label: '/contact', value: '96K' },
-    ],
-    referrers: [
-      { label: 'google.com', value: '226K' },
-      { label: 'continental.com', value: '109K' },
-      { label: 'linkedin.com', value: '54K' },
-      { label: 'direct / none', value: '41K' },
-      { label: 'bing.com', value: '19K' },
-    ],
-    eventTable: [
-      { event: 'page_view', count: '1.28M' },
-      { event: 'button_click', count: '83K' },
-      { event: 'form_submit', count: '6.2K' },
-      { event: 'file_download', count: '4.1K' },
-      { event: 'video_play', count: '2.7K' },
-    ],
-    countryMix: [
-      { label: 'Germany', share: '42.3%' },
-      { label: 'United States', share: '18.7%' },
-      { label: 'France', share: '6.4%' },
-      { label: 'Italy', share: '4.8%' },
-      { label: 'Others', share: '27.8%' },
-    ],
-  },
-  contitech: {
-    metrics: [
-      { label: 'Page Views', value: '642K', delta: '+9.6%', trend: [17, 18, 20, 19, 22, 24, 25] },
-      { label: 'Unique Visitors', value: '210K', delta: '+6.2%', trend: [11, 12, 13, 13, 15, 16, 17] },
-      { label: 'Avg. Engagement Time', value: '2m 08s', delta: '+4.1%', trend: [15, 15, 16, 17, 18, 18, 19] },
-      { label: 'Bounce Rate', value: '41.4%', delta: '-1.7%', trend: [31, 31, 30, 29, 28, 28, 27] },
-      { label: 'Live Visitors', value: '23', delta: 'Live', trend: [4, 5, 4, 6, 6, 7, 6], live: true },
-    ],
-    rangePresets: buildDemoRangePresets({
-      sevenDaySeries: [
-        { label: 'May 12', value: 24000 },
-        { label: 'May 13', value: 31000 },
-        { label: 'May 14', value: 28000 },
-        { label: 'May 15', value: 36000 },
-        { label: 'May 16', value: 34000 },
-        { label: 'May 17', value: 41000 },
-        { label: 'May 18', value: 46000 },
-      ],
-      thirtyDaySeries: [
-        { label: 'Apr 19', value: 18000 },
-        { label: 'Apr 24', value: 22000 },
-        { label: 'Apr 29', value: 26000 },
-        { label: 'May 04', value: 28000 },
-        { label: 'May 09', value: 32000 },
-        { label: 'May 14', value: 39000 },
-        { label: 'May 18', value: 46000 },
-      ],
-      quarterToDateSeries: [
-        { label: 'Mar', value: 144000 },
-        { label: 'Late Mar', value: 166000 },
-        { label: 'Apr', value: 194000 },
-        { label: 'Late Apr', value: 221000 },
-        { label: 'May', value: 253000 },
-      ],
-    }),
-    topPages: [
-      { label: '/hydraulics', value: '131K' },
-      { label: '/products/e-belt', value: '104K' },
-      { label: '/sustainability', value: '86K' },
-      { label: '/contact', value: '62K' },
-      { label: '/downloads', value: '49K' },
-    ],
-    referrers: [
-      { label: 'google.com', value: '118K' },
-      { label: 'partner.portal', value: '61K' },
-      { label: 'continental.com', value: '49K' },
-      { label: 'linkedin.com', value: '27K' },
-      { label: 'direct / none', value: '21K' },
-    ],
-    eventTable: [
-      { event: 'page_view', count: '642K' },
-      { event: 'file_download', count: '31K' },
-      { event: 'spec_opened', count: '19K' },
-      { event: 'contact_request', count: '5.4K' },
-      { event: 'video_play', count: '1.9K' },
-    ],
-    countryMix: [
-      { label: 'Germany', share: '28.4%' },
-      { label: 'France', share: '14.1%' },
-      { label: 'United States', share: '12.8%' },
-      { label: 'Italy', share: '6.7%' },
-      { label: 'Others', share: '38.0%' },
-    ],
-  },
-  'vdo-fleet': {
-    metrics: [
-      { label: 'Page Views', value: '312K', delta: '+11.2%', trend: [14, 15, 16, 18, 19, 21, 22] },
-      { label: 'Unique Visitors', value: '104K', delta: '+8.3%', trend: [9, 9, 10, 11, 12, 13, 14] },
-      { label: 'Avg. Engagement Time', value: '2m 21s', delta: '+5.8%', trend: [14, 15, 15, 16, 17, 18, 19] },
-      { label: 'Bounce Rate', value: '36.2%', delta: '-4.6%', trend: [29, 28, 27, 26, 25, 24, 23] },
-      { label: 'Live Visitors', value: '17', delta: 'Live', trend: [3, 4, 4, 5, 5, 6, 5], live: true },
-    ],
-    rangePresets: buildDemoRangePresets({
-      sevenDaySeries: [
-        { label: 'May 12', value: 11000 },
-        { label: 'May 13', value: 14000 },
-        { label: 'May 14', value: 16000 },
-        { label: 'May 15', value: 21000 },
-        { label: 'May 16', value: 24000 },
-        { label: 'May 17', value: 26000 },
-        { label: 'May 18', value: 29000 },
-      ],
-      thirtyDaySeries: [
-        { label: 'Apr 19', value: 9000 },
-        { label: 'Apr 24', value: 11000 },
-        { label: 'Apr 29', value: 14000 },
-        { label: 'May 04', value: 17000 },
-        { label: 'May 09', value: 21000 },
-        { label: 'May 14', value: 25000 },
-        { label: 'May 18', value: 29000 },
-      ],
-      quarterToDateSeries: [
-        { label: 'Mar', value: 72000 },
-        { label: 'Late Mar', value: 81000 },
-        { label: 'Apr', value: 96000 },
-        { label: 'Late Apr', value: 112000 },
-        { label: 'May', value: 134000 },
-      ],
-    }),
-    topPages: [
-      { label: '/fleet-dashboard', value: '76K' },
-      { label: '/drivers-app', value: '58K' },
-      { label: '/case-studies', value: '43K' },
-      { label: '/contact', value: '37K' },
-      { label: '/faq', value: '22K' },
-    ],
-    referrers: [
-      { label: 'google.com', value: '49K' },
-      { label: 'newsletter', value: '18K' },
-      { label: 'fleet-partners', value: '14K' },
-      { label: 'continental.com', value: '12K' },
-      { label: 'direct / none', value: '11K' },
-    ],
-    eventTable: [
-      { event: 'page_view', count: '312K' },
-      { event: 'demo_opened', count: '18K' },
-      { event: 'contact_request', count: '7.4K' },
-      { event: 'video_play', count: '3.1K' },
-      { event: 'file_download', count: '2.2K' },
-    ],
-    countryMix: [
-      { label: 'Germany', share: '21.5%' },
-      { label: 'United Kingdom', share: '11.2%' },
-      { label: 'Spain', share: '9.3%' },
-      { label: 'Italy', share: '7.0%' },
-      { label: 'Others', share: '51.0%' },
-    ],
-  },
-  contitrade: {
-    metrics: [
-      { label: 'Page Views', value: '158K', delta: '+18.7%', trend: [9, 10, 12, 13, 15, 17, 19] },
-      { label: 'Unique Visitors', value: '57K', delta: '+13.4%', trend: [6, 7, 8, 8, 9, 10, 11] },
-      { label: 'Avg. Engagement Time', value: '1m 34s', delta: '+3.6%', trend: [10, 10, 11, 12, 12, 13, 13] },
-      { label: 'Bounce Rate', value: '44.8%', delta: '-2.2%', trend: [34, 33, 33, 31, 31, 30, 29] },
-      { label: 'Live Visitors', value: '11', delta: 'Live', trend: [2, 3, 3, 4, 4, 5, 4], live: true },
-    ],
-    rangePresets: buildDemoRangePresets({
-      sevenDaySeries: [
-        { label: 'May 12', value: 6000 },
-        { label: 'May 13', value: 7200 },
-        { label: 'May 14', value: 8100 },
-        { label: 'May 15', value: 9400 },
-        { label: 'May 16', value: 10100 },
-        { label: 'May 17', value: 11800 },
-        { label: 'May 18', value: 13200 },
-      ],
-      thirtyDaySeries: [
-        { label: 'Apr 19', value: 4200 },
-        { label: 'Apr 24', value: 5100 },
-        { label: 'Apr 29', value: 6200 },
-        { label: 'May 04', value: 7600 },
-        { label: 'May 09', value: 9100 },
-        { label: 'May 14', value: 10800 },
-        { label: 'May 18', value: 13200 },
-      ],
-      quarterToDateSeries: [
-        { label: 'Mar', value: 34000 },
-        { label: 'Late Mar', value: 39000 },
-        { label: 'Apr', value: 47000 },
-        { label: 'Late Apr', value: 56000 },
-        { label: 'May', value: 68000 },
-      ],
-    }),
-    topPages: [
-      { label: '/store-locator', value: '39K' },
-      { label: '/book-service', value: '31K' },
-      { label: '/offers', value: '28K' },
-      { label: '/winter-check', value: '22K' },
-      { label: '/faq', value: '14K' },
-    ],
-    referrers: [
-      { label: 'google.com', value: '24K' },
-      { label: 'maps', value: '11K' },
-      { label: 'campaign.sms', value: '8K' },
-      { label: 'continental.com', value: '6K' },
-      { label: 'direct / none', value: '5K' },
-    ],
-    eventTable: [
-      { event: 'page_view', count: '158K' },
-      { event: 'appointment_started', count: '9.1K' },
-      { event: 'store_selected', count: '6.4K' },
-      { event: 'coupon_download', count: '2.6K' },
-      { event: 'form_submit', count: '1.3K' },
-    ],
-    countryMix: [
-      { label: 'United States', share: '38.1%' },
-      { label: 'Canada', share: '14.5%' },
-      { label: 'Mexico', share: '10.2%' },
-      { label: 'Germany', share: '6.1%' },
-      { label: 'Others', share: '31.1%' },
-    ],
-  },
-}
 
 export const reportLibrary = [
   {
@@ -758,34 +436,10 @@ export const reportDetails = {
   pages: {
     title: 'Content Performance',
     description: 'Review the top landing and help pages attracting the most attention across active projects.',
-    metrics: [
-      { label: 'Tracked pages', value: '186' },
-      { label: 'Top landing pages', value: '24' },
-      { label: 'Avg. exit rate', value: '28.4%' },
-    ],
-    rows: [
-      { label: '/home', value: '428K', detail: 'Primary workspace entry point with strong repeat traffic.' },
-      { label: '/projects/aegis', value: '315K', detail: 'High engagement from solution comparison flows.' },
-      { label: '/solutions', value: '210K', detail: 'Top cross-project product discovery surface.' },
-      { label: '/about', value: '180K', detail: 'Frequently paired with recruitment and brand campaigns.' },
-      { label: '/contact', value: '142K', detail: 'High-intent traffic from lifecycle campaigns.' },
-    ],
   },
   referrers: {
     title: 'Acquisition Sources',
     description: 'Understand which external and owned channels send the highest-value traffic into the portfolio.',
-    metrics: [
-      { label: 'Tracked referrers', value: '74' },
-      { label: 'Owned share', value: '33.8%' },
-      { label: 'Search-led visits', value: '412K' },
-    ],
-    rows: [
-      { label: 'google.com', value: '412K', detail: 'Primary acquisition source across product discovery content.' },
-      { label: 'continental.com', value: '198K', detail: 'Strong internal referral from corporate and portfolio navigation.' },
-      { label: 'linkedin.com', value: '86K', detail: 'Campaign and recruitment support traffic.' },
-      { label: 'direct / none', value: '74K', detail: 'Repeat users and direct navigation from known audiences.' },
-      { label: 'bing.com', value: '41K', detail: 'Secondary search source with stable conversion intent.' },
-    ],
   },
 }
 
@@ -816,137 +470,3 @@ export const eventCatalog = [
     description: 'Measures media engagement for product explainers and campaign content.',
   },
 ]
-
-export const alertRules = [
-  {
-    name: 'Traffic drop: Aegis hero landing',
-    status: 'Active',
-    owner: 'Aegis owner',
-    trigger: 'Page views down more than 20% day-over-day',
-  },
-  {
-    name: 'Export delay monitor',
-    status: 'Watching',
-    owner: 'Export owner',
-    trigger: 'Weekly exports delayed more than 15 minutes',
-  },
-  {
-    name: 'Consent mode mismatch',
-    status: 'Active',
-    owner: 'Workspace owner',
-    trigger: 'Unexpected event volume after consent state changes',
-  },
-]
-
-export const alertTimeline = [
-  {
-    when: formatTimelineLabel(0, '09:14'),
-    title: 'Export delay monitor recovered',
-    detail: 'Weekly export queue returned to normal delivery latency.',
-  },
-  {
-    when: formatTimelineLabel(-1, '16:40'),
-    title: 'Aegis landing page alert resolved',
-    detail: 'Traffic dip traced to a temporary campaign pause.',
-  },
-  {
-    when: formatTimelineLabel(-4, '08:20'),
-    title: 'Consent mode mismatch reviewed',
-    detail: 'Staging configuration updated after QA validation.',
-  },
-]
-
-export const workspaceSettingsSections = [
-  {
-    title: 'Workspace access',
-    body: 'Control who can view reports, manage alerts, invite members, and change retention settings across the workspace.',
-    bullets: ['Workspace-scoped viewer, editor, and owner roles', 'Owners invite members and manage retention', 'Project-level permissions are out of scope for MVP'],
-  },
-  {
-    title: 'Collection controls',
-    body: 'Review endpoint configuration, consent handling, and event naming rules before expanding project coverage.',
-    bullets: ['Project-level collection settings', 'Consent mode guidance', 'Event allowlists by project'],
-  },
-  {
-    title: 'Export controls',
-    body: 'Define who owns scheduled exports, who can trigger manual downloads, and how failures surface inside the product.',
-    bullets: ['Editors and owners can trigger CSV exports', 'Owners manage scheduled PDF exports', 'Export failures raise in-app alerts'],
-  },
-]
-
-export const projectConversionBySlug: Record<
-  string,
-  { label: string; value: string; detail: string; share: number }[]
-> = {
-  aegis: [
-    { label: 'Demo request', value: '4.7%', detail: 'Hero CTA to request form completion', share: 74 },
-    { label: 'Spec download', value: '3.3%', detail: 'Technical PDF downloads from product pages', share: 58 },
-    { label: 'Newsletter opt-in', value: '1.8%', detail: 'Product and roadmap updates subscription', share: 32 },
-  ],
-  contitech: [
-    { label: 'Contact request', value: '3.9%', detail: 'Contact form completion rate', share: 69 },
-    { label: 'Asset download', value: '5.1%', detail: 'High-value product sheet delivery', share: 83 },
-    { label: 'Sample request', value: '1.6%', detail: 'Qualified engineering inquiry submission', share: 29 },
-  ],
-  'vdo-fleet': [
-    { label: 'Demo opened', value: '5.4%', detail: 'Fleet platform tour launch rate', share: 79 },
-    { label: 'Contact request', value: '2.7%', detail: 'Contact flow completion after docs review', share: 44 },
-    { label: 'App install', value: '1.9%', detail: 'Mobile app handoff from help pages', share: 31 },
-  ],
-  contitrade: [
-    { label: 'Book service', value: '6.2%', detail: 'Appointment start from location and offer pages', share: 88 },
-    { label: 'Coupon download', value: '3.4%', detail: 'Promotional asset retrieval', share: 52 },
-    { label: 'Store call', value: '1.5%', detail: 'Click-to-call from store detail pages', share: 24 },
-  ],
-}
-
-export const projectSettingsBySlug: Record<string, StaticPageSection[]> = {
-  aegis: [
-    {
-      title: 'Collection profile',
-      body: 'Aegis runs standard page and event collection with consent-aware configuration for comparison and brochure flows.',
-      bullets: ['Project owner: Product Security', 'Retention: 13 months', 'Alerts enabled for campaign and export health'],
-    },
-    {
-      title: 'Reporting defaults',
-      body: 'Dashboard filters and exports are tuned for weekly launch reviews and monthly leadership reporting.',
-      bullets: ['Default range: 7D', 'Primary market: Germany', 'Exports delivered every Monday 08:00 UTC'],
-    },
-  ],
-  contitech: [
-    {
-      title: 'Collection profile',
-      body: 'ContiTech prioritizes product content, file downloads, and partner-driven traffic analysis.',
-      bullets: ['Project owner: Industrial Solutions', 'Retention: 12 months', 'Download events reviewed monthly'],
-    },
-    {
-      title: 'Reporting defaults',
-      body: 'Partner and search acquisition are surfaced first for the commercial content team.',
-      bullets: ['Default range: 30D', 'Primary market: EMEA', 'Weekly export recipients include campaign owners'],
-    },
-  ],
-  'vdo-fleet': [
-    {
-      title: 'Collection profile',
-      body: 'VDO Fleet emphasizes demo and lead-flow validation across responsive application surfaces.',
-      bullets: ['Project owner: Fleet Services', 'Retention: 12 months', 'Mobile route tracking enabled'],
-    },
-    {
-      title: 'Reporting defaults',
-      body: 'Mobile traffic and conversion-rate movement are emphasized in stakeholder exports.',
-      bullets: ['Default range: 7D', 'Primary market: Europe', 'Alerts watch demo and contact flows'],
-    },
-  ],
-  contitrade: [
-    {
-      title: 'Collection profile',
-      body: 'ContiTrade is a pilot focused on appointment booking and local-store discovery.',
-      bullets: ['Project owner: Retail Operations', 'Retention: 6 months', 'Store-locator interactions prioritized'],
-    },
-    {
-      title: 'Reporting defaults',
-      body: 'The pilot is tuned for launch validation and regional adoption monitoring.',
-      bullets: ['Default range: 30D', 'Primary market: North America', 'Weekly reports shared with pilot owners'],
-    },
-  ],
-}

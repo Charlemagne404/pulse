@@ -30,7 +30,7 @@ export function AlertsPage() {
           <p>
             {data
               ? `${formatCount(data.summary.activeRules)} active rules and ${formatCount(data.summary.monitoringRules)} monitoring rules are being evaluated against live traffic, consent, export, and collection signals.`
-              : 'Pulse evaluates traffic shifts, export freshness, consent changes, and collection health without requiring manual operator review.'}
+              : 'Pulse evaluates traffic shifts, export freshness, consent changes, and collection health without requiring manual review.'}
           </p>
         </div>
         <Link to="/settings" className="secondary-button">

@@ -76,7 +76,6 @@ export function DocsSearchPage() {
                     id="docs-search-input"
                     type="search"
                     value={query}
-                    placeholder="Search setup, events, consent..."
                     onChange={(event) => {
                       const nextValue = event.target.value
                       startTransition(() => setQuery(nextValue))

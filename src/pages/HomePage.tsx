@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { BrandLockup, ContinentalWordmark } from '../components/Brand'
 import { AppIcon } from '../components/Icon'
-import { LineChart } from '../components/LineChart'
-import { landingFeatureCards, landingPreviewMetrics, landingSeries } from '../data/mockData'
+import { landingFeatureCards } from '../data/mockData'
 import { STATUS_URL } from '../lib/siteLinks'
 
 const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
@@ -16,35 +15,19 @@ const trustBadgeDots = Array.from({ length: 12 }, (_, index) => {
 })
 
 const landingFeatureIconNames = ['shield', 'chart', 'bolt', 'lock'] as const
-
-function buildPreviewSparkline(points: number[]) {
-  const width = 42
-  const height = 14
-  const max = Math.max(...points)
-  const min = Math.min(...points)
-  const range = Math.max(max - min, 1)
-
-  return points
-    .map((point, index) => {
-      const x = (index / Math.max(points.length - 1, 1)) * width
-      const y = height - ((point - min) / range) * height
-
-      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
-    })
-    .join(' ')
-}
+const previewHighlights = [
+  { label: 'Collection', value: 'Event-based', detail: 'No seeded traffic' },
+  { label: 'Status', value: 'Workspace ready', detail: 'Waiting for real events' },
+  { label: 'Setup', value: 'Self-serve', detail: 'Docs and install snippets included' },
+]
 
 function HeroPreviewMetric({
-  delta,
+  detail,
   label,
-  live = false,
-  trend,
   value,
 }: {
-  delta?: string
+  detail: string
   label: string
-  live?: boolean
-  trend?: number[]
   value: string
 }) {
   return (
@@ -52,17 +35,7 @@ function HeroPreviewMetric({
       <div className="hero-preview-metric-head">
         <span>{label}</span>
         <div className="hero-preview-metric-trend">
-          {delta ? (
-            <strong className={live ? 'live' : ''}>
-              {live ? <span className="metric-live-dot" aria-hidden="true" /> : null}
-              {delta}
-            </strong>
-          ) : null}
-          {trend ? (
-            <svg viewBox="0 0 42 14" className="hero-preview-sparkline" aria-hidden="true">
-              <path d={buildPreviewSparkline(trend)} />
-            </svg>
-          ) : null}
+          <strong>{detail}</strong>
         </div>
       </div>
       <div className="hero-preview-metric-value">{value}</div>
@@ -109,7 +82,7 @@ export function HomePage() {
               <span className="auth-session-chip">{user?.displayName || user?.email}</span>
             ) : (
               <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
-                Log In
+                Continue with Continental ID
               </button>
             )}
             <Link to="/dashboard" className="primary-button gold">
@@ -169,21 +142,34 @@ export function HomePage() {
                 </div>
 
                 <div className="hero-preview-metrics">
-                  {landingPreviewMetrics.map((metric) => (
+                  {previewHighlights.map((metric) => (
                     <HeroPreviewMetric key={metric.label} {...metric} />
                   ))}
                 </div>
 
                 <div className="hero-preview-chart">
                   <div className="hero-preview-chart-head">
-                    <span className="chart-kicker">Visits Over Time</span>
+                    <span className="chart-kicker">What happens after install</span>
                     <span className="hero-preview-chart-menu" aria-hidden="true">
                       <i />
                       <i />
                       <i />
                     </span>
                   </div>
-                  <LineChart data={landingSeries} compact height={136} />
+                  <div className="mini-table-list">
+                    <div className="mini-table-row">
+                      <span>1. Add the script</span>
+                      <strong>Docs</strong>
+                    </div>
+                    <div className="mini-table-row">
+                      <span>2. Send page views and events</span>
+                      <strong>API</strong>
+                    </div>
+                    <div className="mini-table-row">
+                      <span>3. Review live traffic in the workspace</span>
+                      <strong>Dashboard</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
             </aside>

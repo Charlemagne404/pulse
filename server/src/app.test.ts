@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPulseServer } from './app.js'
-import type { CollectorConfig, RetentionMonths } from './types.js'
+import type { CollectorConfig } from './types.js'
 
 const createConfig = (
   dir: string,
@@ -12,7 +12,6 @@ const createConfig = (
     Pick<
       CollectorConfig,
       | 'defaultRetentionMonths'
-      | 'projectRetentionMonths'
       | 'rollupIntervalMs'
       | 'retentionIntervalMs'
       | 'maxBatchSize'
@@ -33,21 +32,8 @@ const createConfig = (
   rollupIntervalMs: overrides.rollupIntervalMs ?? 25,
   retentionIntervalMs: overrides.retentionIntervalMs ?? 25,
   defaultRetentionMonths: overrides.defaultRetentionMonths ?? 13,
-  projectRetentionMonths: overrides.projectRetentionMonths ?? new Map<string, RetentionMonths>(),
   allowedProjectIds: new Set(['aegis', 'contitech', 'vdo-fleet', 'contitrade']),
-  allowedEventNames: new Set([
-    'page_view',
-    'button_click',
-    'form_submit',
-    'file_download',
-    'video_play',
-    'spec_opened',
-    'contact_request',
-    'demo_opened',
-    'appointment_started',
-    'store_selected',
-    'coupon_download',
-  ]),
+  allowedEventNames: new Set(['page_view', 'button_click', 'form_submit', 'file_download', 'video_play']),
 })
 
 const startServer = async (config: CollectorConfig) => {
@@ -127,6 +113,39 @@ test('collector rejects duplicate event ids across requests', async () => {
     assert.equal(body.rejected, 1)
     assert.equal(body.results[0]?.status, 'rejected')
     assert.match(body.results[0]?.reason || '', /already exists/i)
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('collector accepts custom snake_case events when no allowlist is configured', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer({
+    ...createConfig(dir),
+    allowedEventNames: new Set(),
+  })
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'custom_event_0001',
+            eventName: 'signup_started',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/pricing' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'sess_custom_0001', visitorKey: 'visitor_custom_0001' },
+            properties: { plan: 'starter' },
+          },
+        ],
+      }),
+    })
+
+    assert.equal(response.status, 202)
   } finally {
     await stopServer(server)
   }

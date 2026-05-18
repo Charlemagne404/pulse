@@ -1,4 +1,4 @@
-import { PROJECTS } from './projects.js'
+import { getProjectMetadata } from './projects.js'
 import { SqliteEventStore } from './store.js'
 import type {
   AlertRuleEvaluation,
@@ -145,7 +145,7 @@ const buildConsentRule = (current: ConsentSnapshot, baseline: ConsentSnapshot): 
       id: 'consent-mismatch',
       name: 'Consent mix shift',
       scopeLabel: 'Workspace',
-      owner: 'Workspace owner',
+      owner: 'Workspace',
       status: 'active',
       severity: 'warning',
       metricLabel: 'Granted consent share',
@@ -162,7 +162,7 @@ const buildConsentRule = (current: ConsentSnapshot, baseline: ConsentSnapshot): 
       id: 'consent-mismatch',
       name: 'Consent mix shift',
       scopeLabel: 'Workspace',
-      owner: 'Workspace owner',
+      owner: 'Workspace',
       status: 'monitoring',
       severity: 'info',
       metricLabel: 'Granted consent share',
@@ -178,7 +178,7 @@ const buildConsentRule = (current: ConsentSnapshot, baseline: ConsentSnapshot): 
     id: 'consent-mismatch',
     name: 'Consent mix shift',
     scopeLabel: 'Workspace',
-    owner: 'Workspace owner',
+    owner: 'Workspace',
     status: 'ok',
     severity: 'info',
     metricLabel: 'Granted consent share',
@@ -205,7 +205,7 @@ const buildExportDelayRule = (
     id: 'scheduled-export-delay',
     name: 'Scheduled export freshness',
     scopeLabel: 'Workspace',
-    owner: 'Workspace owner',
+    owner: 'Workspace',
     status: isDelayed ? 'active' : 'ok',
     severity: isDelayed ? 'critical' : 'info',
     metricLabel: 'Rollup lag',
@@ -284,7 +284,8 @@ export async function buildAlertsResponse(
     store.getConsentSnapshot(range.baselineFrom.toISOString(), range.baselineTo.toISOString()),
     store.readHealthSnapshot(),
     Promise.all(
-      PROJECTS.map(async (project) => {
+      Array.from(config.allowedProjectIds).sort().map(async (projectId) => {
+        const project = getProjectMetadata(projectId)
         const [current, baseline] = await Promise.all([
           store.getProjectOverviewAnalytics(project.id, range.currentFrom.toISOString(), range.currentTo.toISOString(), 'day'),
           store.getProjectOverviewAnalytics(project.id, range.baselineFrom.toISOString(), range.baselineTo.toISOString(), 'day'),
@@ -304,7 +305,7 @@ export async function buildAlertsResponse(
     'workspace-traffic-drop',
     'Workspace traffic drop',
     'Workspace',
-    'Workspace owner',
+    'Workspace',
     getMetricValue(currentOverview.metrics, 'page_views'),
     getMetricValue(baselineOverview.metrics, 'page_views'),
   )
@@ -315,8 +316,8 @@ export async function buildAlertsResponse(
   const projectTrafficRule = buildTrafficRule(
     'project-traffic-drop',
     'Project traffic drop',
-    projectTrafficCandidate?.projectName || 'Project',
-    'Project owner',
+    projectTrafficCandidate?.projectName || 'Tracked project',
+    'Tracked project',
     projectTrafficCandidate?.currentValue || 0,
     projectTrafficCandidate?.baselineValue || 0,
   )
@@ -376,8 +377,8 @@ export async function buildExportsResponse(
       reportSlug: 'executive' as const,
       cadence: 'weekly' as const,
       format: 'pdf_summary' as const,
-      owner: 'Workspace owner',
-      recipients: ['analytics-owner@example.com', 'product-leads@example.com'],
+      owner: 'Workspace',
+      recipients: [],
       lastRunAt: weeklyLastRunAt.toISOString(),
       nextRunAt: weeklyNextRunAt.toISOString(),
       status: scheduleStatus,
@@ -391,8 +392,8 @@ export async function buildExportsResponse(
       reportSlug: 'referrers' as const,
       cadence: 'monthly' as const,
       format: 'pdf_summary' as const,
-      owner: 'Workspace owner',
-      recipients: ['growth@example.com'],
+      owner: 'Workspace',
+      recipients: [],
       lastRunAt: monthlyLastRunAt.toISOString(),
       nextRunAt: monthlyNextRunAt.toISOString(),
       status: scheduleStatus,
@@ -466,7 +467,8 @@ export async function buildWorkspaceSettingsResponse(
   const [health, projects] = await Promise.all([
     store.readHealthSnapshot(),
     Promise.all(
-      PROJECTS.map(async (project): Promise<WorkspaceProjectSetting> => {
+      Array.from(config.allowedProjectIds).sort().map(async (projectId): Promise<WorkspaceProjectSetting> => {
+        const project = getProjectMetadata(projectId)
         const lastEventAt = await store.getLatestEventAt(project.id)
         const isLive = lastEventAt ? now.getTime() - Date.parse(lastEventAt) <= 7 * MS_PER_DAY : false
         const projectStatus: WorkspaceProjectSetting['status'] = isLive ? 'live' : 'idle'
@@ -474,7 +476,7 @@ export async function buildWorkspaceSettingsResponse(
         return {
           projectId: project.id,
           projectName: project.name,
-          retentionMonths: config.projectRetentionMonths.get(project.id) || config.defaultRetentionMonths,
+          retentionMonths: config.defaultRetentionMonths,
           status: projectStatus,
           lastEventAt,
         }
@@ -486,7 +488,7 @@ export async function buildWorkspaceSettingsResponse(
     generatedAt: now.toISOString(),
     workspace: {
       id: 'pulse-workspace',
-      name: 'Pulse Workspace',
+      name: 'Pulse',
       roleModel: 'workspace_scoped',
       defaultRetentionMonths: config.defaultRetentionMonths,
       allowedRetentionMonths: [6, 12, 13],
@@ -529,12 +531,12 @@ export async function buildWorkspaceSettingsResponse(
       },
       {
         title: 'Retention controls',
-        body: 'Retention is visible to every role, but only owners may change it. Projects can use stricter retention than the workspace default.',
-        bullets: ['Default retention is 13 months', 'Allowed project options: 6, 12, or 13 months', 'Exports should respect downstream retention policy'],
+        body: 'Retention is visible to every role, but only owners may change the workspace setting used across projects.',
+        bullets: ['Workspace retention choices: 6, 12, or 13 months', 'Every project follows the same workspace retention setting', 'Exports should respect downstream retention policy'],
       },
       {
         title: 'Alert and export ownership',
-        body: 'Alerts remain in-app only, manual exports are CSV, and scheduled exports are PDF summaries owned by workspace users rather than an operator.',
+        body: 'Alerts remain in-app only, manual exports are CSV, and scheduled exports are PDF summaries managed by workspace users inside the product.',
         bullets: ['Editors and owners manage alert rules', 'Owners manage scheduled exports', 'Export failures surface in-app'],
       },
       {

@@ -91,7 +91,6 @@ export interface CollectorConfig {
   rollupIntervalMs: number
   retentionIntervalMs: number
   defaultRetentionMonths: RetentionMonths
-  projectRetentionMonths: Map<string, RetentionMonths>
   allowedProjectIds: Set<string>
   allowedEventNames: Set<string>
 }

@@ -2,20 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import type { CollectorConfig, RetentionMonths } from './types.js'
 
-const DEFAULT_PROJECT_IDS = ['aegis', 'contitech', 'vdo-fleet', 'contitrade']
-const DEFAULT_EVENT_NAMES = [
-  'page_view',
-  'button_click',
-  'form_submit',
-  'file_download',
-  'video_play',
-  'spec_opened',
-  'contact_request',
-  'demo_opened',
-  'appointment_started',
-  'store_selected',
-  'coupon_download',
-]
+const DEFAULT_PROJECT_IDS: string[] = []
+const DEFAULT_ALLOWED_EVENTS: string[] = []
 const ALLOWED_RETENTION_MONTHS = new Set<RetentionMonths>([6, 12, 13])
 
 const parseInteger = (value: string | undefined, fallback: number) => {
@@ -45,34 +33,6 @@ const parseRetentionMonths = (value: string | undefined, fallback: RetentionMont
   return ALLOWED_RETENTION_MONTHS.has(parsed as RetentionMonths) ? (parsed as RetentionMonths) : fallback
 }
 
-const parseProjectRetentionMonths = (
-  value: string | undefined,
-  defaultRetentionMonths: RetentionMonths,
-): Map<string, RetentionMonths> => {
-  if (!value) {
-    return new Map()
-  }
-
-  const entries = value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-
-  const parsed = new Map<string, RetentionMonths>()
-
-  for (const entry of entries) {
-    const [projectIdRaw, monthsRaw] = entry.split(':')
-    const projectId = projectIdRaw?.trim()
-    const months = parseRetentionMonths(monthsRaw?.trim(), defaultRetentionMonths)
-
-    if (projectId) {
-      parsed.set(projectId, months)
-    }
-  }
-
-  return parsed
-}
-
 export const loadConfig = (): CollectorConfig => {
   const databasePath = resolve(process.env.PULSE_DB_PATH || 'server/data/pulse.sqlite')
   const legacySinkPath = resolve(process.env.PULSE_EVENT_LOG_PATH || 'server/data/events.ndjson')
@@ -94,11 +54,7 @@ export const loadConfig = (): CollectorConfig => {
     rollupIntervalMs: parseInteger(process.env.PULSE_ROLLUP_INTERVAL_MS, 15_000),
     retentionIntervalMs: parseInteger(process.env.PULSE_RETENTION_INTERVAL_MS, 3_600_000),
     defaultRetentionMonths,
-    projectRetentionMonths: parseProjectRetentionMonths(
-      process.env.PULSE_PROJECT_RETENTION_MONTHS,
-      defaultRetentionMonths,
-    ),
     allowedProjectIds: new Set(parseList(process.env.PULSE_PROJECT_IDS, DEFAULT_PROJECT_IDS)),
-    allowedEventNames: new Set(parseList(process.env.PULSE_ALLOWED_EVENTS, DEFAULT_EVENT_NAMES)),
+    allowedEventNames: new Set(parseList(process.env.PULSE_ALLOWED_EVENTS, DEFAULT_ALLOWED_EVENTS)),
   }
 }

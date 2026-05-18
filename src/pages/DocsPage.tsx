@@ -55,7 +55,7 @@ const overviewAnchors = [
   { anchor: 'next-steps', label: 'Next Steps', children: [] as string[] },
 ]
 
-const rolloutSteps = [
+const setupSteps = [
   {
     title: 'Install the client',
     body: 'Load Pulse once in the document head, then keep environment settings centralized.',
@@ -302,7 +302,7 @@ export function DocsPage() {
               </div>
 
               <div className="docs-rollout-list">
-                {rolloutSteps.map((step, index) => (
+                {setupSteps.map((step, index) => (
                   <a key={step.title} href={`#${step.anchor}`} className="docs-rollout-item">
                     <span className="docs-step-badge">{index + 1}</span>
                     <div>
@@ -463,7 +463,7 @@ export function DocsPage() {
 
               <section className="data-panel docs-rail-panel">
                 <h3>Privacy by design</h3>
-                <p>Pulse does not use cookies or fingerprinting, and the rollout guidance keeps those assumptions visible from setup through reporting.</p>
+                <p>Pulse does not use cookies or fingerprinting, and the setup guidance keeps those assumptions visible from install through reporting.</p>
                 <Link to="/privacy" className="panel-link">
                   Learn more
                 </Link>

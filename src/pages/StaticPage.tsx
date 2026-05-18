@@ -28,11 +28,11 @@ export function StaticPage({ content }: StaticPageProps) {
       footerTop={
         <div className="landing-privacy-panel content-footer-panel">
           <div className="landing-footer-copy content-footer-copy">
-            <div>
-              <h2>Set it up yourself.</h2>
-              <p>Use the docs to install Pulse, confirm what gets collected, and validate the dashboard without a sales or implementation call.</p>
+              <div>
+                <h2>Set it up yourself.</h2>
+                <p>Use the docs to install Pulse, confirm what gets collected, and validate the dashboard without extra onboarding steps.</p>
+              </div>
             </div>
-          </div>
 
           <div className="content-footer-actions">
             <ActionLink className="secondary-button" to={content.secondaryAction.to} label={content.secondaryAction.label} />

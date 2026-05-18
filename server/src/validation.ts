@@ -238,7 +238,7 @@ export const validateEvent = (input: unknown, config: CollectorConfig): Validati
     return failure('eventName must be lowercase snake_case', 'eventName')
   }
 
-  if (!config.allowedEventNames.has(eventName)) {
+  if (config.allowedEventNames.size > 0 && !config.allowedEventNames.has(eventName)) {
     return failure('eventName is not allowed by the collector configuration', 'eventName')
   }
 

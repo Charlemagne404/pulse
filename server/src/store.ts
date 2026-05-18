@@ -1043,7 +1043,7 @@ export class SqliteEventStore {
 
       for (const projectId of projectIds) {
         const cutoff = new Date(now)
-        cutoff.setUTCMonth(cutoff.getUTCMonth() - (this.config.projectRetentionMonths.get(projectId) || this.config.defaultRetentionMonths))
+        cutoff.setUTCMonth(cutoff.getUTCMonth() - this.config.defaultRetentionMonths)
         const cutoffMs = cutoff.getTime()
         const bucketRows = listBuckets.all(projectId, cutoffMs) as Array<{ bucket_start_ms: number }>
 

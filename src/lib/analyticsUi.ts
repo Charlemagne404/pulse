@@ -1,4 +1,3 @@
-import { projectDirectory } from '../data/content'
 import type { AnalyticsBreakdownRow, AnalyticsMetric, AnalyticsRange } from './analyticsApi'
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
@@ -40,7 +39,12 @@ const regionNames =
 
 const DEVICE_COLORS = ['#d59c31', '#347fff', '#5c6c88', '#35c585', '#9e6bff']
 
-const projectById = new Map(projectDirectory.map((project) => [project.slug, project]))
+const formatProjectLabel = (projectId: string) =>
+  projectId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 
 export interface MetricCardModel {
   label: string
@@ -151,9 +155,9 @@ export const buildDeviceSegments = (rows: AnalyticsBreakdownRow[]) =>
     color: DEVICE_COLORS[index % DEVICE_COLORS.length] || DEVICE_COLORS[0],
   }))
 
-export const getProjectName = (projectId: string) => projectById.get(projectId)?.name || projectId
+export const getProjectName = (projectId: string) => formatProjectLabel(projectId) || projectId
 
-export const getProjectSlug = (projectId: string) => projectById.get(projectId)?.slug || projectId
+export const getProjectSlug = (projectId: string) => projectId
 
 export const getProjectFilterLabel = (projectId: string | null) => {
   if (!projectId) {

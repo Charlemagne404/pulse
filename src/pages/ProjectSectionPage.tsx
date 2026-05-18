@@ -1,12 +1,12 @@
-import { Link, NavLink, Navigate, useParams } from 'react-router-dom'
+import { Link, NavLink, useParams } from 'react-router-dom'
 import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { ProductShell } from '../components/ProductShell'
-import { ProgressList } from '../components/ProgressList'
-import { projectConversionBySlug, projectDirectory, projectSettingsBySlug } from '../data/content'
+import { ProgressList, type ProgressItem } from '../components/ProgressList'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview } from '../lib/analyticsApi'
-import { formatCount } from '../lib/analyticsUi'
+import { formatCount, formatTimestampLabel, getProjectName } from '../lib/analyticsUi'
+import { fetchWorkspaceSettings, type WorkspaceProjectSetting } from '../lib/productApi'
 
 interface ProjectSectionPageProps {
   sectionKey: 'pages' | 'events' | 'conversions' | 'settings'
@@ -20,22 +20,25 @@ const sectionLabels = {
 } as const
 
 export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
-  const { projectSlug = 'aegis' } = useParams()
-  const project = projectDirectory.find((item) => item.slug === projectSlug)
-  const usesLiveOverview = sectionKey === 'pages' || sectionKey === 'events'
+  const { projectSlug = '' } = useParams()
+  const usesLiveOverview = sectionKey === 'pages' || sectionKey === 'events' || sectionKey === 'conversions'
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     `project-section:${projectSlug}:${sectionKey}`,
     (signal) => (usesLiveOverview ? fetchProjectOverview(projectSlug, {}, signal) : Promise.resolve(null)),
   )
-
-  if (!project) {
-    return <Navigate to="/projects" replace />
-  }
+  const settingsQuery = useAnalyticsQuery(
+    `project-settings:${projectSlug}`,
+    (signal) => (sectionKey === 'settings' ? fetchWorkspaceSettings(signal) : Promise.resolve(null)),
+  )
+  const projectName = data?.project.projectName || getProjectName(projectSlug)
+  const projectSetting = settingsQuery.data?.projects.find((project) => project.projectId === projectSlug) || null
+  const conversionItems = buildConversionItems(data?.eventTable || [])
+  const settingsSections = buildProjectSettingsSections(projectSlug, projectSetting)
 
   return (
     <ProductShell
       activeItem="projects"
-      pageTitle={<div className="page-breadcrumbs">Projects &gt; {project.name}</div>}
+      pageTitle={<div className="page-breadcrumbs">Projects &gt; {projectName}</div>}
       toolbar={
         <div className="toolbar-cluster">
           <Link to="/docs" className="secondary-button">
@@ -56,27 +59,27 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
           <section className="project-hero-panel">
             <div className="project-hero-title">
               <div className="project-avatar">
-                <AppIcon name={project.icon} />
+                <AppIcon name="projects" />
               </div>
               <div>
-                <h1>{project.name}</h1>
-                <p>{project.domain}</p>
+                <h1>{projectName}</h1>
+                <p>Project ID: {projectSlug}</p>
               </div>
-              <span className="project-status">{project.status}</span>
+              <span className="project-status">{projectSetting?.status === 'live' ? 'Live' : 'No recent events'}</span>
             </div>
-            <Link to={`/projects/${project.slug}/settings`} className="secondary-button">
+            <Link to={`/projects/${projectSlug}/settings`} className="secondary-button">
               Project Settings
             </Link>
           </section>
 
           <nav className="project-tabs" aria-label="Project tabs">
-            <NavLink to={`/projects/${project.slug}`} end>
+            <NavLink to={`/projects/${projectSlug}`} end>
               Overview
             </NavLink>
-            <NavLink to={`/projects/${project.slug}/pages`}>Pages</NavLink>
-            <NavLink to={`/projects/${project.slug}/events`}>Events</NavLink>
-            <NavLink to={`/projects/${project.slug}/conversions`}>Conversions</NavLink>
-            <NavLink to={`/projects/${project.slug}/settings`}>Settings</NavLink>
+            <NavLink to={`/projects/${projectSlug}/pages`}>Pages</NavLink>
+            <NavLink to={`/projects/${projectSlug}/events`}>Events</NavLink>
+            <NavLink to={`/projects/${projectSlug}/conversions`}>Conversions</NavLink>
+            <NavLink to={`/projects/${projectSlug}/settings`}>Settings</NavLink>
           </nav>
         </>
       }
@@ -84,7 +87,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
       <section className="data-panel page-intro-panel">
         <div>
           <h2>{sectionLabels[sectionKey]}</h2>
-          <p>{buildSectionIntro(sectionKey, project.name)}</p>
+          <p>{buildSectionIntro(sectionKey, projectName)}</p>
         </div>
         <Link to="/reports" className="secondary-button">
           Workspace Reports
@@ -93,7 +96,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
 
       {sectionKey === 'pages' && error && !data ? (
         <DataStateCard
-          title={`Could not load ${project.name} pages`}
+          title={`Could not load ${projectName} pages`}
           message={error}
           tone="error"
         />
@@ -101,7 +104,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
 
       {sectionKey === 'pages' && isLoading && !data ? (
         <DataStateCard
-          title={`Loading ${project.name} pages`}
+          title={`Loading ${projectName} pages`}
           message="Pulse is requesting the current page breakdown for this project."
         />
       ) : null}
@@ -110,7 +113,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
         <section className="data-panel">
           <div className="panel-head">
             <h2>Top pages</h2>
-            <Link to={`/reports/pages?projectId=${encodeURIComponent(project.slug)}`} className="panel-link">
+            <Link to={`/reports/pages?projectId=${encodeURIComponent(projectSlug)}`} className="panel-link">
               Content report
             </Link>
           </div>
@@ -131,7 +134,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
 
       {sectionKey === 'events' && error && !data ? (
         <DataStateCard
-          title={`Could not load ${project.name} events`}
+          title={`Could not load ${projectName} events`}
           message={error}
           tone="error"
         />
@@ -139,7 +142,7 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
 
       {sectionKey === 'events' && isLoading && !data ? (
         <DataStateCard
-          title={`Loading ${project.name} events`}
+          title={`Loading ${projectName} events`}
           message="Pulse is requesting the current event mix for this project."
         />
       ) : null}
@@ -170,18 +173,22 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
       {sectionKey === 'conversions' ? (
         <section className="data-panel">
           <div className="panel-head">
-            <h2>Primary conversion paths</h2>
+            <h2>Tracked conversion signals</h2>
             <Link to="/help" className="panel-link">
               Validation checklist
             </Link>
           </div>
-          <ProgressList items={projectConversionBySlug[project.slug]} />
+          {conversionItems.length > 0 ? (
+            <ProgressList items={conversionItems} />
+          ) : (
+            <p className="empty-list-copy">No tracked event signals are available for this project yet.</p>
+          )}
         </section>
       ) : null}
 
       {sectionKey === 'settings' ? (
         <section className="content-section-grid">
-          {projectSettingsBySlug[project.slug].map((section) => (
+          {settingsSections.map((section) => (
             <article key={section.title} className="data-panel content-section-card">
               <h2>{section.title}</h2>
               <p>{section.body}</p>
@@ -208,8 +215,38 @@ function buildSectionIntro(sectionKey: ProjectSectionPageProps['sectionKey'], pr
   }
 
   if (sectionKey === 'conversions') {
-    return `Track the primary conversion moments defined for ${projectName} and compare which journeys are producing the strongest follow-through.`
+    return `Review the highest-volume tracked events for ${projectName} to confirm the project is emitting the conversion signals you expect.`
   }
 
-  return `Check the configuration and reporting defaults that control how ${projectName} is measured and reviewed.`
+  return `Check the current workspace-level settings that apply to ${projectName}, including retention and recent collection activity.`
+}
+
+function buildConversionItems(eventTable: Array<{ label: string; value: number }>): ProgressItem[] {
+  const highestValue = Math.max(...eventTable.map((row) => row.value), 0)
+
+  return eventTable.slice(0, 5).map((row) => ({
+    label: row.label,
+    value: formatCount(row.value),
+    detail: 'Recent event volume for this project.',
+    share: highestValue > 0 ? Math.max(8, Math.round((row.value / highestValue) * 100)) : 0,
+  }))
+}
+
+function buildProjectSettingsSections(projectId: string, project: WorkspaceProjectSetting | null) {
+  return [
+    {
+      title: 'Project identity',
+      body: 'This project is referenced by its configured identifier throughout collection, reporting, and filtering.',
+      bullets: [`Project ID: ${projectId}`, `Label: ${project?.projectName || getProjectName(projectId)}`, 'Project-specific presentation metadata is not seeded by default'],
+    },
+    {
+      title: 'Retention and activity',
+      body: 'Retention is managed at the workspace level in MVP, so every project follows the same retention setting.',
+      bullets: [
+        `Retention: ${project ? `${project.retentionMonths} months` : 'Not available'}`,
+        `Status: ${project ? (project.status === 'live' ? 'Receiving recent events' : 'No recent events') : 'Not available'}`,
+        `Last event: ${project ? formatTimestampLabel(project.lastEventAt) : 'Not available'}`,
+      ],
+    },
+  ]
 }

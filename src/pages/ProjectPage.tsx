@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Link, NavLink, Navigate, useParams } from 'react-router-dom'
+import { Link, NavLink, useParams } from 'react-router-dom'
 import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { MetricCard } from '../components/MetricCard'
 import { ProductShell } from '../components/ProductShell'
-import { projectDirectory } from '../data/content'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { cycleIndex, type GranularityOption } from '../lib/analytics'
 import type { AnalyticsGranularity } from '../lib/analyticsApi'
@@ -16,6 +15,7 @@ import {
   formatBreakdownShare,
   formatCount,
   formatCountryCode,
+  getProjectName,
   getProjectSlug,
 } from '../lib/analyticsUi'
 import { buildAnalyticsRangePresets } from '../lib/demoDates'
@@ -30,42 +30,36 @@ const granularityByOption: Record<GranularityOption, AnalyticsGranularity> = {
 const projectRangePresets = buildAnalyticsRangePresets()
 
 export function ProjectPage() {
-  const { projectSlug = 'aegis' } = useParams()
-  const project = projectDirectory.find((item) => item.slug === projectSlug)
+  const { projectSlug = '' } = useParams()
   const [rangeIndex, setRangeIndex] = useState(0)
   const [granularityIndex, setGranularityIndex] = useState(0)
 
   const activeRange = projectRangePresets[rangeIndex] ?? projectRangePresets[0]
   const activeGranularity = granularityOptions[granularityIndex]
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
-    `project:${project?.slug || projectSlug}:${activeRange.label}:${activeGranularity}`,
+    `project:${projectSlug}:${activeRange.label}:${activeGranularity}`,
     (signal) =>
-      project
-        ? fetchProjectOverview(
-            project.slug,
-            {
-              from: activeRange.from,
-              to: activeRange.to,
-              granularity: granularityByOption[activeGranularity],
-            },
-            signal,
-          )
-        : Promise.resolve(null),
+      fetchProjectOverview(
+        projectSlug,
+        {
+          from: activeRange.from,
+          to: activeRange.to,
+          granularity: granularityByOption[activeGranularity],
+        },
+        signal,
+      ),
   )
 
-  if (!project) {
-    return <Navigate to="/projects" replace />
-  }
-
+  const projectName = data?.project.projectName || getProjectName(projectSlug)
   const metricCards = data ? buildMetricCards(data.metrics) : []
   const hasData = Boolean(data && (data.series.length > 0 || data.topPages.length > 0 || data.eventTable.length > 0))
-  const projectPagesReportLink = `/reports/pages?projectId=${encodeURIComponent(project.slug)}`
-  const projectReferrersReportLink = `/reports/referrers?projectId=${encodeURIComponent(project.slug)}`
+  const projectPagesReportLink = `/reports/pages?projectId=${encodeURIComponent(projectSlug)}`
+  const projectReferrersReportLink = `/reports/referrers?projectId=${encodeURIComponent(projectSlug)}`
 
   return (
     <ProductShell
       activeItem="projects"
-      pageTitle={<div className="page-breadcrumbs">Projects &gt; {project.name}</div>}
+      pageTitle={<div className="page-breadcrumbs">Projects &gt; {projectName}</div>}
       toolbar={
         <div className="toolbar-cluster">
           <button
@@ -93,27 +87,27 @@ export function ProjectPage() {
           <section className="project-hero-panel">
             <div className="project-hero-title">
               <div className="project-avatar">
-                <AppIcon name={project.icon} />
+                <AppIcon name="projects" />
               </div>
               <div>
-                <h1>{project.name}</h1>
-                <p>{project.domain}</p>
+                <h1>{projectName}</h1>
+                <p>Project ID: {projectSlug}</p>
               </div>
-              <span className="project-status">{project.status}</span>
+              <span className="project-status">{hasData ? 'Live' : 'No data'}</span>
             </div>
-            <Link to={`/projects/${project.slug}/settings`} className="secondary-button">
+            <Link to={`/projects/${projectSlug}/settings`} className="secondary-button">
               Project Settings
             </Link>
           </section>
 
           <nav className="project-tabs" aria-label="Project tabs">
-            <NavLink to={`/projects/${project.slug}`} end>
+            <NavLink to={`/projects/${projectSlug}`} end>
               Overview
             </NavLink>
-            <NavLink to={`/projects/${project.slug}/pages`}>Pages</NavLink>
-            <NavLink to={`/projects/${project.slug}/events`}>Events</NavLink>
-            <NavLink to={`/projects/${project.slug}/conversions`}>Conversions</NavLink>
-            <NavLink to={`/projects/${project.slug}/settings`}>Settings</NavLink>
+            <NavLink to={`/projects/${projectSlug}/pages`}>Pages</NavLink>
+            <NavLink to={`/projects/${projectSlug}/events`}>Events</NavLink>
+            <NavLink to={`/projects/${projectSlug}/conversions`}>Conversions</NavLink>
+            <NavLink to={`/projects/${projectSlug}/settings`}>Settings</NavLink>
           </nav>
         </>
       }
@@ -128,14 +122,14 @@ export function ProjectPage() {
 
       {isLoading && !data ? (
         <DataStateCard
-          title={`Loading ${project.name}`}
+          title={`Loading ${projectName}`}
           message="Pulse is requesting the current project overview from the analytics API."
         />
       ) : null}
 
       {!isLoading && error && !data ? (
         <DataStateCard
-          title={`Could not load ${project.name}`}
+          title={`Could not load ${projectName}`}
           message={error}
           tone="error"
         />
@@ -143,8 +137,8 @@ export function ProjectPage() {
 
       {!isLoading && !error && data && !hasData ? (
         <DataStateCard
-          title={`No analytics for ${project.name}`}
-          message={`No tracked activity was returned for ${project.name} in ${formatAnalyticsRangeLabel(data.range)}.`}
+          title={`No analytics for ${projectName}`}
+          message={`No tracked activity was returned for ${projectName} in ${formatAnalyticsRangeLabel(data.range)}.`}
         />
       ) : null}
 
@@ -183,7 +177,7 @@ export function ProjectPage() {
             <section className="data-panel">
               <div className="panel-head">
                 <h2>Top Pages</h2>
-                <Link to={`/projects/${project.slug}/pages`} className="panel-link">
+                <Link to={`/projects/${projectSlug}/pages`} className="panel-link">
                   View all
                 </Link>
               </div>
@@ -227,7 +221,7 @@ export function ProjectPage() {
             <section className="data-panel">
               <div className="panel-head">
                 <h2>Events</h2>
-                <Link to={`/projects/${project.slug}/events`} className="panel-link">
+                <Link to={`/projects/${projectSlug}/events`} className="panel-link">
                   View all
                 </Link>
               </div>

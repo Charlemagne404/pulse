@@ -4,13 +4,10 @@ import { AddProjectDialog } from '../components/AddProjectDialog'
 import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { ProductShell } from '../components/ProductShell'
-import { projectDirectory } from '../data/content'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview, type AnalyticsMetric } from '../lib/analyticsApi'
 import { formatCount, formatMetricValue, formatTimestampLabel } from '../lib/analyticsUi'
 import { fetchWorkspaceSettings } from '../lib/productApi'
-
-const projectChromeById = new Map(projectDirectory.map((project) => [project.slug, project]))
 
 const getMetric = (metrics: AnalyticsMetric[], key: string) => metrics.find((metric) => metric.key === key)
 
@@ -24,7 +21,6 @@ export function ProjectsPage() {
 
         return {
           ...project,
-          chrome: projectChromeById.get(project.projectId),
           pageViews: formatMetricValue(
             getMetric(overview.metrics, 'page_views') || {
               key: 'page_views',
@@ -82,8 +78,8 @@ export function ProjectsPage() {
           <h2>Workspace portfolio</h2>
           <p>
             {data
-              ? `${data.workspace.workspace.name} currently tracks ${formatCount(data.projects.length)} configured projects with live portfolio metrics, retention visibility, and a guided setup path for new launches.`
-              : 'Open an individual project to review traffic, event coverage, or launch a new project with a generated Pulse install script.'}
+              ? `${data.workspace.workspace.name} currently tracks ${formatCount(data.projects.length)} configured projects with live portfolio metrics and a simple install flow for new sites.`
+              : 'Open an individual project to review traffic, event coverage, or generate one install script for a new site.'}
           </p>
         </div>
         <div className="page-intro-actions">
@@ -118,30 +114,25 @@ export function ProjectsPage() {
       {data ? (
         <section className="project-card-grid">
           {data.projects.map((project) => {
-            const chrome = project.chrome
-            const projectSlug = chrome?.slug || project.projectId
+            const projectSlug = project.projectId
 
             return (
               <article key={project.projectId} className="data-panel project-directory-card">
                 <div className="project-directory-head">
                   <div className="project-avatar">
-                    <AppIcon name={chrome?.icon || 'projects'} />
+                    <AppIcon name="projects" />
                   </div>
                   <div>
-                    <h2>{chrome?.name || project.projectName}</h2>
-                    <p>{chrome?.domain || `Project ID: ${project.projectId}`}</p>
+                    <h2>{project.projectName}</h2>
+                    <p>Project ID: {project.projectId}</p>
                   </div>
-                  <span className="project-status">{chrome?.status || (project.status === 'live' ? 'Live' : 'Idle')}</span>
+                  <span className="project-status">{project.status === 'live' ? 'Live' : 'Idle'}</span>
                 </div>
 
                 <div className="project-directory-meta">
                   <div>
-                    <span>Owner</span>
-                    <strong>{chrome?.owner || 'Workspace owner'}</strong>
-                  </div>
-                  <div>
-                    <span>Region</span>
-                    <strong>{chrome?.region || 'Global'}</strong>
+                    <span>Status</span>
+                    <strong>{project.status === 'live' ? 'Receiving events' : 'No recent events'}</strong>
                   </div>
                   <div>
                     <span>Page views</span>
@@ -162,8 +153,8 @@ export function ProjectsPage() {
                 </div>
 
                 <p>
-                  Last event {formatTimestampLabel(project.lastEventAt)}.{' '}
-                  {chrome?.note || 'Open the project to review live traffic, content, and referrer behavior.'}
+                  Last event {formatTimestampLabel(project.lastEventAt)}. Open the project to review live traffic,
+                  event coverage, and report detail.
                 </p>
 
                 <div className="project-directory-actions">

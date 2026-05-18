@@ -373,7 +373,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
         }
 
         const eventName = url.searchParams.get('eventName') || undefined
-        if (eventName && !config.allowedEventNames.has(eventName)) {
+        if (eventName && config.allowedEventNames.size > 0 && !config.allowedEventNames.has(eventName)) {
           throw badRequest(`Unknown eventName filter: ${eventName}.`)
         }
 
