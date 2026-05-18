@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AddProjectDialog } from '../components/AddProjectDialog'
 import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { ProductShell } from '../components/ProductShell'
@@ -13,6 +15,7 @@ const projectChromeById = new Map(projectDirectory.map((project) => [project.slu
 const getMetric = (metrics: AnalyticsMetric[], key: string) => metrics.find((metric) => metric.key === key)
 
 export function ProjectsPage() {
+  const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery('projects:index', async (signal) => {
     const workspace = await fetchWorkspaceSettings(signal)
     const projects = await Promise.all(
@@ -62,6 +65,9 @@ export function ProjectsPage() {
       pageTitle={<h1>Projects</h1>}
       toolbar={
         <div className="toolbar-cluster">
+          <button type="button" className="primary-button gold" onClick={() => setIsAddProjectOpen(true)}>
+            Add Project
+          </button>
           <Link to="/docs" className="secondary-button">
             Setup Docs
           </Link>
@@ -76,13 +82,18 @@ export function ProjectsPage() {
           <h2>Workspace portfolio</h2>
           <p>
             {data
-              ? `${data.workspace.workspace.name} currently tracks ${formatCount(data.projects.length)} configured projects with live portfolio metrics and retention visibility.`
-              : 'Open an individual project to review traffic, event coverage, and project-specific reporting and settings.'}
+              ? `${data.workspace.workspace.name} currently tracks ${formatCount(data.projects.length)} configured projects with live portfolio metrics, retention visibility, and a guided setup path for new launches.`
+              : 'Open an individual project to review traffic, event coverage, or launch a new project with a generated Pulse install script.'}
           </p>
         </div>
-        <Link to="/docs" className="secondary-button">
-          Setup Docs
-        </Link>
+        <div className="page-intro-actions">
+          <button type="button" className="primary-button gold" onClick={() => setIsAddProjectOpen(true)}>
+            Add Project
+          </button>
+          <Link to="/docs" className="secondary-button">
+            Setup Docs
+          </Link>
+        </div>
       </section>
 
       {error && data ? (
@@ -168,6 +179,8 @@ export function ProjectsPage() {
           })}
         </section>
       ) : null}
+
+      <AddProjectDialog isOpen={isAddProjectOpen} onClose={() => setIsAddProjectOpen(false)} />
     </ProductShell>
   )
 }
