@@ -4,6 +4,14 @@ export type DeviceType = 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown'
 export type RetentionMonths = 6 | 12 | 13
 export type Scalar = string | number | boolean | null
 
+export interface AuthenticatedAccount {
+  accountId: string
+  continentalId: string
+  email: string
+  username: string
+  displayName: string
+}
+
 export interface PulseEventInput {
   eventId?: unknown
   eventName?: unknown
@@ -35,6 +43,7 @@ export interface StoredPulseEvent {
   schemaVersion: 1
   receivedAt: string
   eventId: string
+  accountId?: string
   eventName: string
   occurredAt: string
   projectId: string
@@ -81,6 +90,7 @@ export type ValidationResult = ValidationSuccess | ValidationFailure
 export interface CollectorConfig {
   host: string
   port: number
+  authApiBaseUrl: string
   corsOrigin: string
   maxBatchSize: number
   maxBodyBytes: number
@@ -93,6 +103,24 @@ export interface CollectorConfig {
   defaultRetentionMonths: RetentionMonths
   allowedProjectIds: Set<string>
   allowedEventNames: Set<string>
+}
+
+export interface CreateProjectRequestBody {
+  name?: unknown
+  domain?: unknown
+  projectId?: unknown
+  integrationPreset?: unknown
+}
+
+export interface ProjectRecord {
+  projectId: string
+  projectName: string
+  siteHost: string
+  integrationPreset: 'website' | 'spa'
+  createdAt: string
+  ownerAccountId: string
+  ownerEmail: string
+  ownerDisplayName: string
 }
 
 export type AnalyticsGranularity = 'day' | 'week' | 'month'

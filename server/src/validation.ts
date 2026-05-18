@@ -247,10 +247,6 @@ export const validateEvent = (input: unknown, config: CollectorConfig): Validati
     return failure('projectId is required', 'projectId')
   }
 
-  if (!config.allowedProjectIds.has(projectId)) {
-    return failure('projectId is unknown to the collector', 'projectId')
-  }
-
   const occurredAt = readTrimmedString(event.occurredAt)
   if (!occurredAt || Number.isNaN(Date.parse(occurredAt))) {
     return failure('occurredAt must be a valid ISO timestamp', 'occurredAt')

@@ -1,10 +1,12 @@
 import { useEffect, useId, useState } from 'react'
+import { createProject } from '../lib/productApi'
 
 type IntegrationPreset = 'website' | 'spa'
 
 interface AddProjectDialogProps {
   isOpen: boolean
   onClose: () => void
+  onProjectCreated: () => void
 }
 
 interface ProjectSetupForm {
@@ -169,9 +171,12 @@ function SnippetCard({ title, description, code, copied, onCopy }: SnippetCardPr
   )
 }
 
-export function AddProjectDialog({ isOpen, onClose }: AddProjectDialogProps) {
+export function AddProjectDialog({ isOpen, onClose, onProjectCreated }: AddProjectDialogProps) {
   const [form, setForm] = useState<ProjectSetupForm>(initialForm)
   const [copiedKey, setCopiedKey] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [createdProjectId, setCreatedProjectId] = useState('')
   const titleId = useId()
 
   useEffect(() => {
@@ -204,6 +209,7 @@ export function AddProjectDialog({ isOpen, onClose }: AddProjectDialogProps) {
   const projectId = form.projectId || autoProjectId || 'your-website'
   const siteHost = resolveSiteHost(form.domain, projectId)
   const installSnippet = buildInstallSnippet(projectId, siteHost, form.integrationPreset)
+  const isCreated = createdProjectId === projectId
 
   const setField = <K extends keyof ProjectSetupForm>(key: K, value: ProjectSetupForm[K]) => {
     setForm((current) => ({
@@ -221,6 +227,27 @@ export function AddProjectDialog({ isOpen, onClose }: AddProjectDialogProps) {
       }, 1800)
     } catch {
       setCopiedKey('')
+    }
+  }
+
+  const handleCreateProject = async () => {
+    setIsSubmitting(true)
+    setErrorMessage('')
+
+    try {
+      const project = await createProject({
+        name: projectName,
+        domain: form.domain,
+        projectId,
+        integrationPreset: form.integrationPreset,
+      })
+
+      setCreatedProjectId(project.projectId)
+      onProjectCreated()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not create the project.')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -303,12 +330,13 @@ export function AddProjectDialog({ isOpen, onClose }: AddProjectDialogProps) {
               <div className="setup-section-head">
                 <div>
                   <span className="country-pill">2</span>
-                  <h3>What the user does</h3>
+                  <h3>Create the project</h3>
                 </div>
-                <p>This is the entire setup path from their perspective.</p>
+                <p>Projects now belong to the signed-in account before the script can send analytics.</p>
               </div>
 
               <ol className="setup-checklist">
+                <li>Save the project to this account.</li>
                 <li>Copy the generated script.</li>
                 <li>Paste it into `index.html`, the site shell, or the main app layout.</li>
                 <li>Publish the site and open it once so Pulse can start receiving page views through your backend.</li>
@@ -324,17 +352,29 @@ export function AddProjectDialog({ isOpen, onClose }: AddProjectDialogProps) {
                   <strong>{form.integrationPreset === 'spa' ? 'SPA route tracking included' : 'Regular page tracking'}</strong>
                 </div>
               </div>
+
+              {errorMessage ? <p className="empty-list-copy">{errorMessage}</p> : null}
+              {isCreated ? <p className="empty-list-copy">Project saved to your account. This script will now be accepted.</p> : null}
+
+              <button
+                type="button"
+                className="primary-button gold"
+                disabled={isSubmitting || isCreated}
+                onClick={() => void handleCreateProject()}
+              >
+                {isSubmitting ? 'Creating project…' : isCreated ? 'Project created' : 'Create project'}
+              </button>
             </article>
           </section>
 
           <section className="setup-dialog-panel setup-dialog-output-panel">
             <article className="data-panel setup-output-hero">
               <div>
-                <span className="status-chip">Ready to paste</span>
-                <h3>One script. No backend steps for the user.</h3>
+                <span className="status-chip">{isCreated ? 'Ready to paste' : 'Save first'}</span>
+                <h3>One script tied to this account-owned project.</h3>
                 <p>
-                  This snippet is the only thing they need to install on their site. It sends data through your managed
-                  Pulse backend.
+                  Pulse only accepts analytics for projects saved in your account. Create the project first, then
+                  install this snippet on the site.
                 </p>
               </div>
 

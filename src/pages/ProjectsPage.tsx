@@ -13,7 +13,8 @@ const getMetric = (metrics: AnalyticsMetric[], key: string) => metrics.find((met
 
 export function ProjectsPage() {
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
-  const { data, error, isLoading, isRefreshing } = useAnalyticsQuery('projects:index', async (signal) => {
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(`projects:index:${refreshNonce}`, async (signal) => {
     const workspace = await fetchWorkspaceSettings(signal)
     const projects = await Promise.all(
       workspace.projects.map(async (project) => {
@@ -171,7 +172,11 @@ export function ProjectsPage() {
         </section>
       ) : null}
 
-      <AddProjectDialog isOpen={isAddProjectOpen} onClose={() => setIsAddProjectOpen(false)} />
+      <AddProjectDialog
+        isOpen={isAddProjectOpen}
+        onClose={() => setIsAddProjectOpen(false)}
+        onProjectCreated={() => setRefreshNonce((current) => current + 1)}
+      />
     </ProductShell>
   )
 }

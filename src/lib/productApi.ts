@@ -1,3 +1,5 @@
+import { getAccessToken } from '../auth/accessToken'
+
 export type AlertRuleStatus = 'ok' | 'monitoring' | 'active'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 
@@ -126,6 +128,24 @@ export interface WorkspaceSettingsResponse {
   }
 }
 
+export interface CreateProjectRequest {
+  name: string
+  domain: string
+  projectId: string
+  integrationPreset: 'website' | 'spa'
+}
+
+export interface ProjectRecord {
+  projectId: string
+  projectName: string
+  siteHost: string
+  integrationPreset: 'website' | 'spa'
+  createdAt: string
+  ownerAccountId: string
+  ownerEmail: string
+  ownerDisplayName: string
+}
+
 interface ApiErrorPayload {
   message?: string
 }
@@ -161,11 +181,15 @@ const buildErrorMessage = async (response: Response) => {
   return `Request failed with status ${response.status}.`
 }
 
-const requestJson = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
+const requestJson = async <T>(path: string, signal?: AbortSignal, init?: RequestInit): Promise<T> => {
+  const accessToken = getAccessToken()
   const response = await fetch(buildRequestUrl(path), {
+    ...init,
     signal,
     headers: {
       accept: 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(init?.headers || {}),
     },
   })
 
@@ -191,3 +215,12 @@ export const fetchExports = (signal?: AbortSignal) => requestJson<ExportsRespons
 
 export const fetchWorkspaceSettings = (signal?: AbortSignal) =>
   requestJson<WorkspaceSettingsResponse>('/v1/workspace', signal)
+
+export const createProject = (payload: CreateProjectRequest, signal?: AbortSignal) =>
+  requestJson<ProjectRecord>('/v1/projects', signal, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })

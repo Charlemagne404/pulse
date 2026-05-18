@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createContinentalAuthResolver, type AuthResolver } from './auth.js'
 import { badRequest, isHttpError, notFound, payloadTooLarge, tooManyRequests } from './errors.js'
 import { buildAlertsResponse, buildExportsResponse, buildWorkspaceSettingsResponse } from './operations.js'
 import { SqliteEventStore } from './store.js'
-import type { CollectRequestBody, CollectorConfig, StoredPulseEvent } from './types.js'
+import type { CollectorConfig, CreateProjectRequestBody, StoredPulseEvent } from './types.js'
 import { validateEvent } from './validation.js'
 
 const buildJsonHeaders = (corsOrigin: string) =>
@@ -11,7 +12,7 @@ const buildJsonHeaders = (corsOrigin: string) =>
     'cache-control': 'no-store',
     'access-control-allow-origin': corsOrigin,
     'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'authorization,content-type',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'same-origin',
   }) as const
@@ -66,15 +67,9 @@ const readJsonBody = async (request: IncomingMessage, maxBodyBytes: number) => {
   }
 
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as CollectRequestBody
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
   } catch {
     throw badRequest('Body must contain valid JSON.')
-  }
-}
-
-const ensureKnownProjectId = (config: CollectorConfig, projectId: string) => {
-  if (!projectId || !config.allowedProjectIds.has(projectId)) {
-    throw notFound(`Unknown project: ${projectId || 'missing'}.`)
   }
 }
 
@@ -114,6 +109,50 @@ const enforceRateLimit = (
   current.count += 1
 }
 
+const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,47}$/
+
+const readTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const normalizeProjectHost = (value: string, fallbackProjectId: string) => {
+  if (!value) {
+    return fallbackProjectId
+  }
+
+  try {
+    const url = new URL(value.includes('://') ? value : `https://${value}`)
+    return url.host || fallbackProjectId
+  } catch {
+    return value.replace(/^\/+|\/+$/g, '') || fallbackProjectId
+  }
+}
+
+const parseCreateProjectBody = (body: Record<string, unknown>) => {
+  const payload = body as CreateProjectRequestBody
+  const projectName = readTrimmedString(payload.name)
+  const projectId = readTrimmedString(payload.projectId)
+  const domain = readTrimmedString(payload.domain)
+  const integrationPreset = readTrimmedString(payload.integrationPreset)
+
+  if (!projectName) {
+    throw badRequest('Project name is required.')
+  }
+
+  if (!PROJECT_ID_PATTERN.test(projectId)) {
+    throw badRequest('projectId must be lowercase letters, numbers, and hyphens only.')
+  }
+
+  if (integrationPreset !== 'website' && integrationPreset !== 'spa') {
+    throw badRequest('integrationPreset must be either "website" or "spa".')
+  }
+
+  return {
+    projectId,
+    projectName,
+    siteHost: normalizeProjectHost(domain, projectId),
+    integrationPreset: integrationPreset as 'website' | 'spa',
+  }
+}
+
 const applyDuplicateGuards = (acceptedEvents: StoredPulseEvent[], existingEventIds: Set<string>) => {
   const seenInRequest = new Set<string>()
 
@@ -144,7 +183,11 @@ const applyDuplicateGuards = (acceptedEvents: StoredPulseEvent[], existingEventI
   })
 }
 
-export const createPulseServer = (config: CollectorConfig, store = new SqliteEventStore(config)): Server => {
+export const createPulseServer = (
+  config: CollectorConfig,
+  store = new SqliteEventStore(config),
+  authResolver: AuthResolver = createContinentalAuthResolver(config),
+): Server => {
   const requestBuckets = new Map<string, { startedAtMs: number; count: number }>()
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET'
@@ -205,9 +248,41 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
           }
         })
 
+        const projectOwnership = await store.getProjectOwnershipMap(
+          Array.from(new Set(candidateAcceptedEvents.map((event) => event.projectId))),
+        )
+        const ownedEvents = preliminaryResults.map((item) => {
+          if (item.status === 'rejected') {
+            return item
+          }
+
+          const matchedEvent = candidateAcceptedEvents.find((event) => event.eventId === item.eventId)
+          const project = matchedEvent ? projectOwnership.get(matchedEvent.projectId) : null
+
+          if (!matchedEvent || !project) {
+            return {
+              index: item.index,
+              status: 'rejected' as const,
+              reason: `Unknown project: ${matchedEvent?.projectId || 'missing'}.`,
+              field: 'projectId',
+            }
+          }
+
+          return {
+            ...item,
+            event: {
+              ...matchedEvent,
+              accountId: project.ownerAccountId,
+            },
+          }
+        })
+        const resolvedAcceptedEvents = ownedEvents
+          .filter((item): item is (typeof item & { status: 'accepted'; event: StoredPulseEvent }) => item.status === 'accepted' && 'event' in item)
+          .map((item) => item.event)
+
         const duplicateChecks = applyDuplicateGuards(
-          candidateAcceptedEvents,
-          await store.getExistingEventIds(candidateAcceptedEvents.map((event) => event.eventId)),
+          resolvedAcceptedEvents,
+          await store.getExistingEventIds(resolvedAcceptedEvents.map((event) => event.eventId)),
         )
         const acceptedById = new Set(duplicateChecks.filter((item) => item.accepted).map((item) => item.event.eventId))
         const acceptedEvents = duplicateChecks.filter((item) => item.accepted).map((item) => item.event)
@@ -217,9 +292,20 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
             .map((item) => [item.event.eventId, item] as const),
         )
 
+        const ownershipFailures = new Map(
+          ownedEvents
+            .filter((item) => item.status === 'rejected' && 'field' in item && item.field === 'projectId')
+            .map((item) => [item.index, item] as const),
+        )
+
         const results = preliminaryResults.map((item) => {
           if (item.status === 'rejected') {
             return item
+          }
+
+          const ownershipFailure = ownershipFailures.get(item.index)
+          if (ownershipFailure) {
+            return ownershipFailure
           }
 
           if (acceptedById.has(item.eventId)) {
@@ -250,9 +336,22 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
       return
     }
 
+    const requiresAccount = url.pathname.startsWith('/v1/')
+    let account = null
+
+    if (requiresAccount) {
+      try {
+        account = await authResolver.authenticate(request)
+        await store.bootstrapAccountProjects(account)
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Sign in with Continental ID to open Pulse.')
+        return
+      }
+    }
+
     if (method === 'GET' && url.pathname === '/v1/alerts') {
       try {
-        send(response, config.corsOrigin, 200, await buildAlertsResponse(store, config))
+        send(response, config.corsOrigin, 200, await buildAlertsResponse(store, config, account!))
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected alerts error.')
       }
@@ -261,7 +360,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
 
     if (method === 'GET' && url.pathname === '/v1/exports') {
       try {
-        send(response, config.corsOrigin, 200, await buildExportsResponse(store, config))
+        send(response, config.corsOrigin, 200, await buildExportsResponse(store, config, account!))
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected export pipeline error.')
       }
@@ -270,9 +369,20 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
 
     if (method === 'GET' && url.pathname === '/v1/workspace') {
       try {
-        send(response, config.corsOrigin, 200, await buildWorkspaceSettingsResponse(store, config))
+        send(response, config.corsOrigin, 200, await buildWorkspaceSettingsResponse(store, config, account!))
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected workspace settings error.')
+      }
+      return
+    }
+
+    if (method === 'POST' && url.pathname === '/v1/projects') {
+      try {
+        const body = await readJsonBody(request, config.maxBodyBytes)
+        const project = await store.createProject(account!, parseCreateProjectBody(body))
+        send(response, config.corsOrigin, 201, project)
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected project creation error.')
       }
       return
     }
@@ -284,6 +394,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
           config.corsOrigin,
           200,
           await store.getOverviewAnalytics(
+            account!.accountId,
             url.searchParams.get('from'),
             url.searchParams.get('to'),
             url.searchParams.get('granularity'),
@@ -299,12 +410,16 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
     if (method === 'GET' && projectOverviewMatch) {
       try {
         const projectId = decodeURIComponent(projectOverviewMatch[1] || '')
-        ensureKnownProjectId(config, projectId)
+        const project = await store.getProjectRecordForAccount(account!.accountId, projectId)
+        if (!project) {
+          throw notFound(`Unknown project: ${projectId || 'missing'}.`)
+        }
         send(
           response,
           config.corsOrigin,
           200,
           await store.getProjectOverviewAnalytics(
+            account!.accountId,
             projectId,
             url.searchParams.get('from'),
             url.searchParams.get('to'),
@@ -321,7 +436,10 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
       try {
         const projectId = url.searchParams.get('projectId') || undefined
         if (projectId) {
-          ensureKnownProjectId(config, projectId)
+          const project = await store.getProjectRecordForAccount(account!.accountId, projectId)
+          if (!project) {
+            throw notFound(`Unknown project: ${projectId}.`)
+          }
         }
 
         send(
@@ -329,6 +447,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
           config.corsOrigin,
           200,
           await store.getPagesReport(
+            account!.accountId,
             url.searchParams.get('from'),
             url.searchParams.get('to'),
             url.searchParams.get('granularity'),
@@ -345,7 +464,10 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
       try {
         const projectId = url.searchParams.get('projectId') || undefined
         if (projectId) {
-          ensureKnownProjectId(config, projectId)
+          const project = await store.getProjectRecordForAccount(account!.accountId, projectId)
+          if (!project) {
+            throw notFound(`Unknown project: ${projectId}.`)
+          }
         }
 
         send(
@@ -353,6 +475,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
           config.corsOrigin,
           200,
           await store.getReferrersReport(
+            account!.accountId,
             url.searchParams.get('from'),
             url.searchParams.get('to'),
             url.searchParams.get('granularity'),
@@ -369,7 +492,10 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
       try {
         const projectId = url.searchParams.get('projectId') || undefined
         if (projectId) {
-          ensureKnownProjectId(config, projectId)
+          const project = await store.getProjectRecordForAccount(account!.accountId, projectId)
+          if (!project) {
+            throw notFound(`Unknown project: ${projectId}.`)
+          }
         }
 
         const eventName = url.searchParams.get('eventName') || undefined
@@ -389,7 +515,7 @@ export const createPulseServer = (config: CollectorConfig, store = new SqliteEve
           response,
           config.corsOrigin,
           200,
-          await store.getRecentEventsPage({
+          await store.getRecentEventsPage(account!.accountId, {
             ...recentEventsQuery,
             ...(projectId ? { projectId } : {}),
             ...(eventName ? { eventName } : {}),

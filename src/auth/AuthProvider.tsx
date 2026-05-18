@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { clearAccessToken, setAccessToken } from './accessToken'
 import { AuthContext } from './authContext'
 import {
   buildContinentalLoginUrl,
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setSignedOut = (message = '') => {
     accessTokenRef.current = ''
+    clearAccessToken()
     setUser(null)
     setStatus('unauthenticated')
     setErrorMessage(message)
@@ -85,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         accessTokenRef.current = refreshed.accessToken
+        setAccessToken(refreshed.accessToken)
         const nextUser = await fetchContinentalUser(refreshed.accessToken)
         setUser(nextUser)
         setStatus('authenticated')
@@ -160,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (trimmedToken) {
         try {
           accessTokenRef.current = trimmedToken
+          setAccessToken(trimmedToken)
           const nextUser = await fetchContinentalUser(trimmedToken)
           setUser(nextUser)
           setStatus('authenticated')

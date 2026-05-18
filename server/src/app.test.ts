@@ -4,7 +4,25 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPulseServer } from './app.js'
-import type { CollectorConfig } from './types.js'
+import type { AuthenticatedAccount, CollectorConfig } from './types.js'
+import type { AuthResolver } from './auth.js'
+
+const TEST_ACCOUNTS: Record<string, AuthenticatedAccount> = {
+  'test-user-1': {
+    accountId: 'user_1',
+    continentalId: 'user_1',
+    email: 'user1@example.com',
+    username: 'user1',
+    displayName: 'User One',
+  },
+  'test-user-2': {
+    accountId: 'user_2',
+    continentalId: 'user_2',
+    email: 'user2@example.com',
+    username: 'user2',
+    displayName: 'User Two',
+  },
+}
 
 const createConfig = (
   dir: string,
@@ -22,6 +40,7 @@ const createConfig = (
 ): CollectorConfig => ({
   host: '127.0.0.1',
   port: 0,
+  authApiBaseUrl: 'https://auth.continental-hub.com',
   corsOrigin: '*',
   maxBatchSize: overrides.maxBatchSize ?? 25,
   maxBodyBytes: 262_144,
@@ -37,7 +56,20 @@ const createConfig = (
 })
 
 const startServer = async (config: CollectorConfig) => {
-  const server = createPulseServer(config)
+  const authResolver: AuthResolver = {
+    async authenticate(request) {
+      const header = request.headers.authorization || ''
+      const token = header.replace(/^Bearer\s+/i, '').trim()
+      const account = TEST_ACCOUNTS[token]
+
+      if (!account) {
+        throw new Error('Missing test auth token.')
+      }
+
+      return account
+    },
+  }
+  const server = createPulseServer(config, undefined, authResolver)
 
   await new Promise<void>((resolve) => {
     server.listen(config.port, config.host, () => resolve())
@@ -50,6 +82,17 @@ const startServer = async (config: CollectorConfig) => {
 
   const baseUrl = `http://${config.host}:${address.port}`
   return { server, baseUrl }
+}
+
+const authHeaders = (token = 'test-user-1') => ({
+  authorization: `Bearer ${token}`,
+})
+
+const bootstrapWorkspace = async (baseUrl: string, token = 'test-user-1') => {
+  const response = await fetch(`${baseUrl}/v1/workspace`, {
+    headers: authHeaders(token),
+  })
+  assert.equal(response.status, 200)
 }
 
 const buildUtcIso = (dayOffset: number, hour: number, minute = 0) => {
@@ -76,6 +119,7 @@ test('collector rejects duplicate event ids across requests', async () => {
   const { server, baseUrl } = await startServer(createConfig(dir))
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const payload = {
       events: [
         {
@@ -126,6 +170,7 @@ test('collector accepts custom snake_case events when no allowlist is configured
   })
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const response = await fetch(`${baseUrl}/v1/collect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -203,6 +248,7 @@ test('legacy NDJSON migrates into sqlite and preserves invalid-line health signa
 
     const overviewResponse = await fetch(
       `${baseUrl}/v1/analytics/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
     )
     assert.equal(overviewResponse.status, 200)
     const overview = (await overviewResponse.json()) as {
@@ -221,10 +267,95 @@ test('analytics rejects unknown project filters', async () => {
   const { server, baseUrl } = await startServer(createConfig(dir))
 
   try {
-    const response = await fetch(`${baseUrl}/v1/analytics/projects/unknown-project/overview`)
+    const response = await fetch(`${baseUrl}/v1/analytics/projects/unknown-project/overview`, {
+      headers: authHeaders(),
+    })
     assert.equal(response.status, 404)
     const body = (await response.json()) as { error: string }
     assert.equal(body.error, 'not_found')
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('projects and analytics stay scoped to the owning account', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const config = createConfig(dir)
+  config.allowedProjectIds = new Set()
+  const { server, baseUrl } = await startServer(config)
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/v1/projects`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders('test-user-1'),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'My Site',
+        domain: 'https://example.com',
+        projectId: 'my-site',
+        integrationPreset: 'website',
+      }),
+    })
+    assert.equal(createResponse.status, 201)
+
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'account_scoped_event_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'my-site',
+            page: { path: '/home' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'sess_account_scope_0001', visitorKey: 'visitor_account_scope_0001' },
+          },
+        ],
+      }),
+    })
+    assert.equal(collectResponse.status, 202)
+
+    const ownerWorkspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
+      headers: authHeaders('test-user-1'),
+    })
+    assert.equal(ownerWorkspaceResponse.status, 200)
+    const ownerWorkspace = (await ownerWorkspaceResponse.json()) as {
+      projects: Array<{ projectId: string }>
+    }
+    assert.deepEqual(ownerWorkspace.projects.map((project) => project.projectId), ['my-site'])
+
+    const otherWorkspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
+      headers: authHeaders('test-user-2'),
+    })
+    assert.equal(otherWorkspaceResponse.status, 200)
+    const otherWorkspace = (await otherWorkspaceResponse.json()) as {
+      projects: Array<{ projectId: string }>
+    }
+    assert.equal(otherWorkspace.projects.length, 0)
+
+    const ownerOverviewResponse = await fetch(
+      `${baseUrl}/v1/analytics/projects/my-site/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      {
+        headers: authHeaders('test-user-1'),
+      },
+    )
+    assert.equal(ownerOverviewResponse.status, 200)
+    const ownerOverview = (await ownerOverviewResponse.json()) as {
+      metrics: Array<{ key: string; value: number }>
+    }
+    assert.equal(ownerOverview.metrics.find((metric) => metric.key === 'page_views')?.value, 1)
+
+    const otherOverviewResponse = await fetch(
+      `${baseUrl}/v1/analytics/projects/my-site/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      {
+        headers: authHeaders('test-user-2'),
+      },
+    )
+    assert.equal(otherOverviewResponse.status, 404)
   } finally {
     await stopServer(server)
   }
@@ -235,6 +366,7 @@ test('collector stores sanitized paths and recent events expose the normalized v
   const { server, baseUrl } = await startServer(createConfig(dir))
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const response = await fetch(`${baseUrl}/v1/collect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -254,6 +386,7 @@ test('collector stores sanitized paths and recent events expose the normalized v
 
     const recentResponse = await fetch(
       `${baseUrl}/v1/analytics/events/recent?projectId=aegis&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z&limit=1`,
+      { headers: authHeaders() },
     )
     assert.equal(recentResponse.status, 200)
 
@@ -276,6 +409,7 @@ test('retention enforcement removes events outside the configured project window
   )
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const response = await fetch(`${baseUrl}/v1/collect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -322,6 +456,7 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
   const { server, baseUrl } = await startServer(createConfig(dir))
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const response = await fetch(`${baseUrl}/v1/collect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -364,6 +499,7 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
 
     const firstPageResponse = await fetch(
       `${baseUrl}/v1/analytics/events/recent?projectId=aegis&eventName=page_view&pathPrefix=/docs&limit=1&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
     )
     assert.equal(firstPageResponse.status, 200)
 
@@ -379,6 +515,7 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
 
     const secondPageResponse = await fetch(
       `${baseUrl}/v1/analytics/events/recent?projectId=aegis&eventName=page_view&pathPrefix=/docs&limit=1&cursor=${encodeURIComponent(firstPage.page.nextCursor || '')}&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
     )
     assert.equal(secondPageResponse.status, 200)
 
@@ -392,6 +529,7 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
 
     const filteredResponse = await fetch(
       `${baseUrl}/v1/analytics/events/recent?projectId=aegis&deviceType=mobile&countryCode=DE&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
     )
     assert.equal(filteredResponse.status, 200)
 
@@ -416,6 +554,7 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
   )
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const events = [
       ...Array.from({ length: 36 }, (_, index) => ({
         eventId: `baseline_${index}`,
@@ -444,7 +583,9 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
     })
     assert.equal(collectResponse.status, 202)
 
-    const alertsResponse = await fetch(`${baseUrl}/v1/alerts`)
+    const alertsResponse = await fetch(`${baseUrl}/v1/alerts`, {
+      headers: authHeaders(),
+    })
     assert.equal(alertsResponse.status, 200)
     assert.equal(alertsResponse.headers.get('cache-control'), 'no-store')
     const alerts = (await alertsResponse.json()) as {
@@ -454,7 +595,9 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
     assert.ok(alerts.summary.activeRules >= 1)
     assert.equal(alerts.rules.find((rule) => rule.id === 'workspace-traffic-drop')?.status, 'active')
 
-    const exportsResponse = await fetch(`${baseUrl}/v1/exports`)
+    const exportsResponse = await fetch(`${baseUrl}/v1/exports`, {
+      headers: authHeaders(),
+    })
     assert.equal(exportsResponse.status, 200)
     const exportsBody = (await exportsResponse.json()) as {
       summary: { scheduledExports: number; manualExportFormat: string }
@@ -466,7 +609,9 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
     assert.equal(exportsBody.schedules.length, 2)
     assert.ok(exportsBody.recentRuns.some((run) => run.format === 'csv'))
 
-    const workspaceResponse = await fetch(`${baseUrl}/v1/workspace`)
+    const workspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
+      headers: authHeaders(),
+    })
     assert.equal(workspaceResponse.status, 200)
     const workspace = (await workspaceResponse.json()) as {
       projects: Array<{ projectId: string; retentionMonths: number }>
@@ -493,6 +638,7 @@ test('collector enforces per-client rate limiting before processing the request 
   )
 
   try {
+    await bootstrapWorkspace(baseUrl)
     const firstResponse = await fetch(`${baseUrl}/v1/collect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

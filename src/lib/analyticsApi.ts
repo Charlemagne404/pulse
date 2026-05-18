@@ -1,3 +1,5 @@
+import { getAccessToken } from '../auth/accessToken'
+
 export type AnalyticsGranularity = 'day' | 'week' | 'month'
 
 export interface AnalyticsRange {
@@ -173,10 +175,12 @@ const requestJson = async <T>(
   options: RequestQueryOptions = {},
   signal?: AbortSignal,
 ): Promise<T> => {
+  const accessToken = getAccessToken()
   const response = await fetch(buildRequestUrl(path, options), {
     signal,
     headers: {
       accept: 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
   })
 

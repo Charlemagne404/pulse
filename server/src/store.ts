@@ -2,13 +2,16 @@ import { readFile } from 'node:fs/promises'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { conflict } from './errors.js'
 import { getProjectMetadata } from './projects.js'
 import type {
+  AuthenticatedAccount,
   AnalyticsBreakdownRow,
   AnalyticsGranularity,
   AnalyticsRange,
   ConsentSnapshot,
   CollectorConfig,
+  ProjectRecord,
   OverviewAnalyticsResponse,
   OverviewTopProjectRow,
   PagesReportResponse,
@@ -82,6 +85,17 @@ interface HealthSnapshot {
   lastRetentionAt: string | null
   pendingRollupBuckets: number
   retentionDeletedEvents: number
+}
+
+interface RegisteredProjectRow {
+  project_id: string
+  project_name: string
+  site_host: string
+  integration_preset: 'website' | 'spa'
+  created_at: string
+  owner_account_id: string
+  owner_email: string
+  owner_display_name: string
 }
 
 const round = (value: number, digits = 1) => {
@@ -340,6 +354,178 @@ export class SqliteEventStore {
     void this.runMaintenance()
   }
 
+  async bootstrapAccountProjects(account: AuthenticatedAccount) {
+    await this.readyPromise
+
+    if (this.countRegisteredProjectsSync() > 0 || this.config.allowedProjectIds.size === 0) {
+      return
+    }
+
+    this.db.exec('BEGIN IMMEDIATE')
+
+    try {
+      const insertProject = this.db.prepare(`
+        INSERT INTO registered_projects (
+          project_id,
+          project_name,
+          site_host,
+          integration_preset,
+          created_at,
+          owner_account_id,
+          owner_email,
+          owner_display_name
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      const now = new Date().toISOString()
+
+      for (const projectId of Array.from(this.config.allowedProjectIds).sort()) {
+        const project = getProjectMetadata(projectId)
+        insertProject.run(
+          project.id,
+          project.name,
+          project.id,
+          'website',
+          now,
+          account.accountId,
+          account.email,
+          account.displayName,
+        )
+      }
+
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+
+    this.backfillAccountOwnershipSync(account.accountId, Array.from(this.config.allowedProjectIds))
+    this.processDirtyBucketsSync()
+  }
+
+  async createProject(
+    account: AuthenticatedAccount,
+    input: {
+      projectId: string
+      projectName: string
+      siteHost: string
+      integrationPreset: 'website' | 'spa'
+    },
+  ): Promise<ProjectRecord> {
+    await this.readyPromise
+
+    try {
+      this.db
+        .prepare(`
+          INSERT INTO registered_projects (
+            project_id,
+            project_name,
+            site_host,
+            integration_preset,
+            created_at,
+            owner_account_id,
+            owner_email,
+            owner_display_name
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          input.projectId,
+          input.projectName,
+          input.siteHost,
+          input.integrationPreset,
+          new Date().toISOString(),
+          account.accountId,
+          account.email,
+          account.displayName,
+        )
+    } catch (error) {
+      if ((error as Error).message.includes('UNIQUE')) {
+        throw conflict(`Project ID "${input.projectId}" is already in use.`)
+      }
+
+      throw error
+    }
+
+    return this.getProjectRecordSync(input.projectId)!
+  }
+
+  async listProjectsForAccount(accountId: string): Promise<ProjectRecord[]> {
+    await this.readyPromise
+    const rows = this.db
+      .prepare(`
+        SELECT
+          project_id,
+          project_name,
+          site_host,
+          integration_preset,
+          created_at,
+          owner_account_id,
+          owner_email,
+          owner_display_name
+        FROM registered_projects
+        WHERE owner_account_id = ?
+        ORDER BY project_name COLLATE NOCASE ASC, project_id ASC
+      `)
+      .all(accountId) as unknown as RegisteredProjectRow[]
+
+    return rows.map((row) => this.toProjectRecord(row))
+  }
+
+  async getProjectRecord(projectId: string) {
+    await this.readyPromise
+    return this.getProjectRecordSync(projectId)
+  }
+
+  async getProjectRecordForAccount(accountId: string, projectId: string) {
+    await this.readyPromise
+    const row = this.db
+      .prepare(`
+        SELECT
+          project_id,
+          project_name,
+          site_host,
+          integration_preset,
+          created_at,
+          owner_account_id,
+          owner_email,
+          owner_display_name
+        FROM registered_projects
+        WHERE owner_account_id = ?
+          AND project_id = ?
+      `)
+      .get(accountId, projectId) as RegisteredProjectRow | undefined
+
+    return row ? this.toProjectRecord(row) : null
+  }
+
+  async getProjectOwnershipMap(projectIds: string[]) {
+    await this.readyPromise
+
+    if (projectIds.length === 0) {
+      return new Map<string, ProjectRecord>()
+    }
+
+    const placeholders = projectIds.map(() => '?').join(', ')
+    const rows = this.db
+      .prepare(`
+        SELECT
+          project_id,
+          project_name,
+          site_host,
+          integration_preset,
+          created_at,
+          owner_account_id,
+          owner_email,
+          owner_display_name
+        FROM registered_projects
+        WHERE project_id IN (${placeholders})
+      `)
+      .all(...projectIds) as unknown as RegisteredProjectRow[]
+
+    return new Map(rows.map((row) => [row.project_id, this.toProjectRecord(row)]))
+  }
+
   private insertEventsSync(events: StoredPulseEvent[]) {
     this.db.exec('BEGIN IMMEDIATE')
 
@@ -352,6 +538,7 @@ export class SqliteEventStore {
           occurred_at,
           occurred_at_ms,
           bucket_start_ms,
+          account_id,
           project_id,
           event_name,
           path,
@@ -368,7 +555,7 @@ export class SqliteEventStore {
           properties_json,
           event_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       const markDirty = this.db.prepare('INSERT OR IGNORE INTO dirty_rollup_buckets (bucket_start_ms) VALUES (?)')
 
@@ -383,6 +570,7 @@ export class SqliteEventStore {
           event.occurredAt,
           occurredAtMs,
           bucketStartMs,
+          event.accountId || '',
           event.projectId,
           event.eventName,
           event.page.path,
@@ -451,25 +639,25 @@ export class SqliteEventStore {
     }
   }
 
-  async getOverviewAnalytics(fromRaw: string | null, toRaw: string | null, granularityRaw: string | null) {
+  async getOverviewAnalytics(accountId: string, fromRaw: string | null, toRaw: string | null, granularityRaw: string | null) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(), fromRaw, toRaw, granularityRaw)
-    const dayCounts = this.getPageViewDayCountsSync(resolved)
-    const totalPageViews = this.getPageViewCountSync(resolved)
-    const sessionEvents = this.getRangeEventsSync(resolved)
+    const resolved = resolveRange(this.getBoundsSync(accountId), fromRaw, toRaw, granularityRaw)
+    const dayCounts = this.getPageViewDayCountsSync(accountId, resolved)
+    const totalPageViews = this.getPageViewCountSync(accountId, resolved)
+    const sessionEvents = this.getRangeEventsSync(accountId, resolved)
     const sessionSummaries = summarizeSessions(sessionEvents)
     const sessionValues = Array.from(sessionSummaries.values())
     const totalSessionDuration = sessionValues.reduce((sum, session) => sum + session.durationSeconds, 0)
     const bouncedSessions = sessionValues.filter((session) => session.pageViews === 1 && session.engagementEvents === 0).length
-    const uniqueVisitors = this.getDistinctCountSync('visitor_key', resolved)
-    const liveVisitors = this.getDistinctCountSync('session_id', resolved, Date.now() - 5 * 60 * 1000)
-    const topPages = summarizeBreakdown(this.getPageViewBreakdownSync('path', resolved), totalPageViews)
-    const topReferrers = summarizeBreakdown(this.getPageViewBreakdownSync('referrer', resolved), totalPageViews)
-    const deviceMix = summarizeBreakdown(this.getPageViewBreakdownSync('device_type', resolved), totalPageViews, 10)
-    const browserMix = summarizeBreakdown(this.getPageViewBreakdownSync('browser_name', resolved), totalPageViews, 10)
+    const uniqueVisitors = this.getDistinctCountSync(accountId, 'visitor_key', resolved)
+    const liveVisitors = this.getDistinctCountSync(accountId, 'session_id', resolved, Date.now() - 5 * 60 * 1000)
+    const topPages = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'path', resolved), totalPageViews)
+    const topReferrers = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'referrer', resolved), totalPageViews)
+    const deviceMix = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'device_type', resolved), totalPageViews, 10)
+    const browserMix = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'browser_name', resolved), totalPageViews, 10)
 
-    const topProjectsPageViews = this.getPageViewBreakdownSync('project_id', resolved)
-    const topProjectsUniqueVisitors = this.getDistinctCountsByProjectSync(resolved)
+    const topProjectsPageViews = this.getPageViewBreakdownSync(accountId, 'project_id', resolved)
+    const topProjectsUniqueVisitors = this.getDistinctCountsByProjectSync(accountId, resolved)
     const totalProjectPageViews = Array.from(topProjectsPageViews.values()).reduce((sum, value) => sum + value, 0)
 
     const topProjects = Array.from(topProjectsPageViews.entries())
@@ -489,8 +677,8 @@ export class SqliteEventStore {
     return {
       range: resolved.range,
       totals: {
-        acceptedEvents: this.getAcceptedEventCountSync(resolved),
-        trackedProjects: this.getTrackedProjectCountSync(resolved),
+        acceptedEvents: this.getAcceptedEventCountSync(accountId, resolved),
+        trackedProjects: this.getTrackedProjectCountSync(accountId, resolved),
       },
       metrics: [
         { key: 'page_views', label: 'Page Views', value: totalPageViews, unit: 'count' as const },
@@ -520,20 +708,21 @@ export class SqliteEventStore {
       topReferrers,
       deviceMix,
       browserMix,
-      recentEvents: this.getRecentEventRowsSync(resolved, { limit: 10 }),
+      recentEvents: this.getRecentEventRowsSync(accountId, resolved, { limit: 10 }),
     } satisfies OverviewAnalyticsResponse
   }
 
   async getProjectOverviewAnalytics(
+    accountId: string,
     projectId: string,
     fromRaw: string | null,
     toRaw: string | null,
     granularityRaw: string | null,
   ) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(projectId), fromRaw, toRaw, granularityRaw)
-    const pageViewCount = this.getPageViewCountSync(resolved, projectId)
-    const sessionEvents = this.getRangeEventsSync(resolved, projectId)
+    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
+    const pageViewCount = this.getPageViewCountSync(accountId, resolved, projectId)
+    const sessionEvents = this.getRangeEventsSync(accountId, resolved, projectId)
     const sessionSummaries = summarizeSessions(sessionEvents)
     const sessionValues = Array.from(sessionSummaries.values())
     const totalSessionDuration = sessionValues.reduce((sum, session) => sum + session.durationSeconds, 0)
@@ -550,14 +739,14 @@ export class SqliteEventStore {
         {
           key: 'unique_visitors',
           label: 'Unique Visitors',
-          value: this.getDistinctCountSync('visitor_key', resolved, undefined, projectId),
+          value: this.getDistinctCountSync(accountId, 'visitor_key', resolved, undefined, projectId),
           unit: 'count' as const,
           approximate: true,
         },
         {
           key: 'live_visitors',
           label: 'Live Visitors',
-          value: this.getDistinctCountSync('session_id', resolved, Date.now() - 5 * 60 * 1000, projectId),
+          value: this.getDistinctCountSync(accountId, 'session_id', resolved, Date.now() - 5 * 60 * 1000, projectId),
           unit: 'count' as const,
           approximate: true,
         },
@@ -574,30 +763,30 @@ export class SqliteEventStore {
           unit: 'seconds' as const,
         },
       ],
-      series: Array.from(buildSeries(this.getPageViewDayCountsSync(resolved, projectId), resolved.range.granularity).entries())
+      series: Array.from(buildSeries(this.getPageViewDayCountsSync(accountId, resolved, projectId), resolved.range.granularity).entries())
         .sort(([a], [b]) => a - b)
         .map(([bucketMs, value]) => ({
           label: formatBucketLabel(new Date(bucketMs), resolved.range.granularity),
           value,
         })),
-      topPages: summarizeBreakdown(this.getPageViewBreakdownSync('path', resolved, projectId), pageViewCount),
-      topReferrers: summarizeBreakdown(this.getPageViewBreakdownSync('referrer', resolved, projectId), pageViewCount),
-      eventTable: summarizeBreakdown(this.getEventBreakdownSync('event_name', resolved, projectId), this.getAcceptedEventCountSync(resolved, projectId), 10).map(
+      topPages: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'path', resolved, projectId), pageViewCount),
+      topReferrers: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'referrer', resolved, projectId), pageViewCount),
+      eventTable: summarizeBreakdown(this.getEventBreakdownSync(accountId, 'event_name', resolved, projectId), this.getAcceptedEventCountSync(accountId, resolved, projectId), 10).map(
         (row) => ({
           label: row.label,
           value: row.value,
         }),
       ),
-      countryMix: summarizeBreakdown(this.getPageViewBreakdownSync('country_code', resolved, projectId), pageViewCount, 10),
-      recentEvents: this.getRecentEventRowsSync(resolved, { projectId, limit: 10 }),
+      countryMix: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'country_code', resolved, projectId), pageViewCount, 10),
+      recentEvents: this.getRecentEventRowsSync(accountId, resolved, { projectId, limit: 10 }),
     } satisfies ProjectAnalyticsResponse
   }
 
-  async getPagesReport(fromRaw: string | null, toRaw: string | null, granularityRaw: string | null, projectId?: string) {
+  async getPagesReport(accountId: string, fromRaw: string | null, toRaw: string | null, granularityRaw: string | null, projectId?: string) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(projectId), fromRaw, toRaw, granularityRaw)
-    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(resolved, projectId))
-    const pageViews = this.getPageViewBreakdownSync('path', resolved, projectId)
+    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
+    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(accountId, resolved, projectId))
+    const pageViews = this.getPageViewBreakdownSync(accountId, 'path', resolved, projectId)
     const exits = new Map<string, number>()
     const inclusions = new Map<string, number>()
     const landings = new Map<string, number>()
@@ -644,14 +833,15 @@ export class SqliteEventStore {
   }
 
   async getReferrersReport(
+    accountId: string,
     fromRaw: string | null,
     toRaw: string | null,
     granularityRaw: string | null,
     projectId?: string,
   ) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(projectId), fromRaw, toRaw, granularityRaw)
-    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(resolved, projectId))
+    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
+    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(accountId, resolved, projectId))
     const referrerCounts = new Map<string, number>()
     let ownedVisits = 0
     let searchLedVisits = 0
@@ -679,9 +869,9 @@ export class SqliteEventStore {
     } satisfies ReferrersReportResponse
   }
 
-  async getConsentSnapshot(fromRaw: string | null, toRaw: string | null, projectId?: string): Promise<ConsentSnapshot> {
+  async getConsentSnapshot(accountId: string, fromRaw: string | null, toRaw: string | null, projectId?: string): Promise<ConsentSnapshot> {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(projectId), fromRaw, toRaw, null)
+    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, null)
     const projectClause = projectId ? 'AND project_id = ?' : ''
     const row = this.db
       .prepare(`
@@ -694,11 +884,13 @@ export class SqliteEventStore {
         FROM raw_events
         WHERE occurred_at_ms >= ?
           AND occurred_at_ms <= ?
+          AND account_id = ?
           ${projectClause}
       `)
       .get(
         resolved.fromMs,
         resolved.toMs,
+        accountId,
         ...(projectId ? [projectId] : []),
       ) as
       | {
@@ -719,25 +911,26 @@ export class SqliteEventStore {
     }
   }
 
-  async getLatestEventAt(projectId?: string): Promise<string | null> {
+  async getLatestEventAt(accountId: string, projectId?: string): Promise<string | null> {
     await this.ensureCurrentReadModel()
-    const projectClause = projectId ? 'WHERE project_id = ?' : ''
+    const projectClause = projectId ? 'AND project_id = ?' : ''
     const row = this.db
       .prepare(`
         SELECT MAX(occurred_at) AS last_occurred_at
         FROM raw_events
+        WHERE account_id = ?
         ${projectClause}
       `)
-      .get(...(projectId ? [projectId] : [])) as { last_occurred_at: string | null } | undefined
+      .get(accountId, ...(projectId ? [projectId] : [])) as { last_occurred_at: string | null } | undefined
 
     return row?.last_occurred_at || null
   }
 
-  async getRecentEventsPage(query: RecentEventsQuery): Promise<RecentEventsPageResponse> {
+  async getRecentEventsPage(accountId: string, query: RecentEventsQuery): Promise<RecentEventsPageResponse> {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
+    const resolved = resolveRange(this.getBoundsSync(accountId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
     const limit = clampLimit(query.limitRaw, 25)
-    const rows = this.getRecentEventRowsSync(resolved, {
+    const rows = this.getRecentEventRowsSync(accountId, resolved, {
       projectId: query.projectId,
       eventName: query.eventName,
       deviceType: query.deviceType,
@@ -752,7 +945,7 @@ export class SqliteEventStore {
     const nextCursor = rows.length > limit && cursorRow
       ? encodeCursor({
           occurredAtMs: Date.parse(cursorRow.occurredAt),
-          eventId: this.getRecentEventIdSync(cursorRow, resolved, query.projectId),
+          eventId: this.getRecentEventIdSync(accountId, cursorRow, resolved, query.projectId),
         })
       : null
 
@@ -834,6 +1027,7 @@ export class SqliteEventStore {
         occurred_at TEXT NOT NULL,
         occurred_at_ms INTEGER NOT NULL,
         bucket_start_ms INTEGER NOT NULL,
+        account_id TEXT NOT NULL DEFAULT '',
         project_id TEXT NOT NULL,
         event_name TEXT NOT NULL,
         path TEXT NOT NULL,
@@ -852,13 +1046,16 @@ export class SqliteEventStore {
       );
 
       CREATE INDEX IF NOT EXISTS raw_events_occurred_at_ms_idx ON raw_events (occurred_at_ms DESC, event_id DESC);
+      CREATE INDEX IF NOT EXISTS raw_events_account_occurred_at_ms_idx ON raw_events (account_id, occurred_at_ms DESC, event_id DESC);
       CREATE INDEX IF NOT EXISTS raw_events_project_occurred_at_ms_idx ON raw_events (project_id, occurred_at_ms DESC, event_id DESC);
+      CREATE INDEX IF NOT EXISTS raw_events_account_project_occurred_at_ms_idx ON raw_events (account_id, project_id, occurred_at_ms DESC, event_id DESC);
       CREATE INDEX IF NOT EXISTS raw_events_session_id_idx ON raw_events (session_id, occurred_at_ms ASC, event_id ASC);
       CREATE INDEX IF NOT EXISTS raw_events_visitor_key_idx ON raw_events (visitor_key, occurred_at_ms DESC);
       CREATE INDEX IF NOT EXISTS raw_events_bucket_start_ms_idx ON raw_events (bucket_start_ms);
 
       CREATE TABLE IF NOT EXISTS daily_rollups (
         bucket_start_ms INTEGER NOT NULL,
+        account_id TEXT NOT NULL DEFAULT '',
         project_id TEXT NOT NULL,
         event_name TEXT NOT NULL,
         path TEXT NOT NULL,
@@ -881,12 +1078,29 @@ export class SqliteEventStore {
       );
 
       CREATE INDEX IF NOT EXISTS daily_rollups_bucket_project_idx ON daily_rollups (bucket_start_ms, project_id);
+      CREATE INDEX IF NOT EXISTS daily_rollups_account_bucket_project_idx ON daily_rollups (account_id, bucket_start_ms, project_id);
       CREATE INDEX IF NOT EXISTS daily_rollups_bucket_path_idx ON daily_rollups (bucket_start_ms, path);
 
       CREATE TABLE IF NOT EXISTS dirty_rollup_buckets (
         bucket_start_ms INTEGER PRIMARY KEY
       );
+
+      CREATE TABLE IF NOT EXISTS registered_projects (
+        project_id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        site_host TEXT NOT NULL,
+        integration_preset TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        owner_account_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        owner_display_name TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS registered_projects_owner_account_idx ON registered_projects (owner_account_id, project_name);
     `)
+
+    this.ensureColumnSync('raw_events', 'account_id', "TEXT NOT NULL DEFAULT ''")
+    this.ensureColumnSync('daily_rollups', 'account_id', "TEXT NOT NULL DEFAULT ''")
   }
 
   private async migrateLegacyFileIfNeeded() {
@@ -966,6 +1180,7 @@ export class SqliteEventStore {
       const insertRollups = this.db.prepare(`
         INSERT INTO daily_rollups (
           bucket_start_ms,
+          account_id,
           project_id,
           event_name,
           path,
@@ -978,6 +1193,7 @@ export class SqliteEventStore {
         )
         SELECT
           bucket_start_ms,
+          MIN(account_id) AS account_id,
           project_id,
           event_name,
           path,
@@ -1021,39 +1237,33 @@ export class SqliteEventStore {
 
   private enforceRetentionSync() {
     const now = new Date()
-    const projectIds = Array.from(this.config.allowedProjectIds)
     const deletedBuckets = new Set<number>()
     let deletedEvents = 0
 
     this.db.exec('BEGIN IMMEDIATE')
 
     try {
+      const cutoff = new Date(now)
+      cutoff.setUTCMonth(cutoff.getUTCMonth() - this.config.defaultRetentionMonths)
+      const cutoffMs = cutoff.getTime()
       const listBuckets = this.db.prepare(`
         SELECT DISTINCT bucket_start_ms
         FROM raw_events
-        WHERE project_id = ?
-          AND occurred_at_ms < ?
+        WHERE occurred_at_ms < ?
       `)
       const deleteOldEvents = this.db.prepare(`
         DELETE FROM raw_events
-        WHERE project_id = ?
-          AND occurred_at_ms < ?
+        WHERE occurred_at_ms < ?
       `)
       const markDirty = this.db.prepare('INSERT OR IGNORE INTO dirty_rollup_buckets (bucket_start_ms) VALUES (?)')
 
-      for (const projectId of projectIds) {
-        const cutoff = new Date(now)
-        cutoff.setUTCMonth(cutoff.getUTCMonth() - this.config.defaultRetentionMonths)
-        const cutoffMs = cutoff.getTime()
-        const bucketRows = listBuckets.all(projectId, cutoffMs) as Array<{ bucket_start_ms: number }>
-
-        for (const row of bucketRows) {
-          deletedBuckets.add(row.bucket_start_ms)
-        }
-
-        const result = deleteOldEvents.run(projectId, cutoffMs) as { changes: number }
-        deletedEvents += result.changes
+      const bucketRows = listBuckets.all(cutoffMs) as Array<{ bucket_start_ms: number }>
+      for (const row of bucketRows) {
+        deletedBuckets.add(row.bucket_start_ms)
       }
+
+      const result = deleteOldEvents.run(cutoffMs) as { changes: number }
+      deletedEvents += result.changes
 
       for (const bucketStartMs of deletedBuckets) {
         markDirty.run(bucketStartMs)
@@ -1105,15 +1315,96 @@ export class SqliteEventStore {
       .run(key, value)
   }
 
-  private getBoundsSync(projectId?: string): TimestampBounds {
+  private ensureColumnSync(tableName: string, columnName: string, definitionSql: string) {
+    const rows = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
+    if (rows.some((row) => row.name === columnName)) {
+      return
+    }
+
+    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`)
+  }
+
+  private countRegisteredProjectsSync() {
+    const row = this.db.prepare('SELECT COUNT(*) AS count FROM registered_projects').get() as { count: number }
+    return row.count
+  }
+
+  private toProjectRecord(row: RegisteredProjectRow): ProjectRecord {
+    return {
+      projectId: row.project_id,
+      projectName: row.project_name,
+      siteHost: row.site_host,
+      integrationPreset: row.integration_preset,
+      createdAt: row.created_at,
+      ownerAccountId: row.owner_account_id,
+      ownerEmail: row.owner_email,
+      ownerDisplayName: row.owner_display_name,
+    }
+  }
+
+  private getProjectRecordSync(projectId: string) {
+    const row = this.db
+      .prepare(`
+        SELECT
+          project_id,
+          project_name,
+          site_host,
+          integration_preset,
+          created_at,
+          owner_account_id,
+          owner_email,
+          owner_display_name
+        FROM registered_projects
+        WHERE project_id = ?
+      `)
+      .get(projectId) as RegisteredProjectRow | undefined
+
+    return row ? this.toProjectRecord(row) : null
+  }
+
+  private backfillAccountOwnershipSync(accountId: string, projectIds: string[]) {
+    if (projectIds.length === 0) {
+      return
+    }
+
+    const updateRaw = this.db.prepare(`
+      UPDATE raw_events
+      SET account_id = ?
+      WHERE account_id = ''
+        AND project_id = ?
+    `)
+    const updateRollups = this.db.prepare(`
+      UPDATE daily_rollups
+      SET account_id = ?
+      WHERE account_id = ''
+        AND project_id = ?
+    `)
+
+    this.db.exec('BEGIN IMMEDIATE')
+
+    try {
+      for (const projectId of projectIds) {
+        updateRaw.run(accountId, projectId)
+        updateRollups.run(accountId, projectId)
+      }
+
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  private getBoundsSync(accountId: string, projectId?: string): TimestampBounds {
     if (projectId) {
       const row = this.db
         .prepare(`
           SELECT MIN(occurred_at_ms) AS min_occurred_at_ms, MAX(occurred_at_ms) AS max_occurred_at_ms
           FROM raw_events
-          WHERE project_id = ?
+          WHERE account_id = ?
+            AND project_id = ?
         `)
-        .get(projectId) as { min_occurred_at_ms: number | null; max_occurred_at_ms: number | null }
+        .get(accountId, projectId) as { min_occurred_at_ms: number | null; max_occurred_at_ms: number | null }
 
       return {
         minOccurredAtMs: row.min_occurred_at_ms,
@@ -1122,8 +1413,12 @@ export class SqliteEventStore {
     }
 
     const row = this.db
-      .prepare('SELECT MIN(occurred_at_ms) AS min_occurred_at_ms, MAX(occurred_at_ms) AS max_occurred_at_ms FROM raw_events')
-      .get() as { min_occurred_at_ms: number | null; max_occurred_at_ms: number | null }
+      .prepare(`
+        SELECT MIN(occurred_at_ms) AS min_occurred_at_ms, MAX(occurred_at_ms) AS max_occurred_at_ms
+        FROM raw_events
+        WHERE account_id = ?
+      `)
+      .get(accountId) as { min_occurred_at_ms: number | null; max_occurred_at_ms: number | null }
 
     return {
       minOccurredAtMs: row.min_occurred_at_ms,
@@ -1131,13 +1426,13 @@ export class SqliteEventStore {
     }
   }
 
-  private getAcceptedEventCountSync(resolved: ResolvedRange, projectId?: string) {
+  private getAcceptedEventCountSync(accountId: string, resolved: ResolvedRange, projectId?: string) {
     const partition = partitionRangeByDay(resolved.fromMs, resolved.toMs)
     let total = 0
 
     if (partition.fullBucketFromMs !== null && partition.fullBucketToMs !== null) {
-      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs]
-      let sql = 'SELECT COALESCE(SUM(event_count), 0) AS value FROM daily_rollups WHERE bucket_start_ms BETWEEN ? AND ?'
+      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs, accountId]
+      let sql = 'SELECT COALESCE(SUM(event_count), 0) AS value FROM daily_rollups WHERE bucket_start_ms BETWEEN ? AND ? AND account_id = ?'
       if (projectId) {
         sql += ' AND project_id = ?'
         params.push(projectId)
@@ -1148,6 +1443,7 @@ export class SqliteEventStore {
     }
 
     total += this.sumRawEdgesSync(
+      accountId,
       partition.edgeRanges,
       'COUNT(*)',
       projectId,
@@ -1156,13 +1452,13 @@ export class SqliteEventStore {
     return total
   }
 
-  private getPageViewCountSync(resolved: ResolvedRange, projectId?: string) {
+  private getPageViewCountSync(accountId: string, resolved: ResolvedRange, projectId?: string) {
     const partition = partitionRangeByDay(resolved.fromMs, resolved.toMs)
     let total = 0
 
     if (partition.fullBucketFromMs !== null && partition.fullBucketToMs !== null) {
-      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs]
-      let sql = 'SELECT COALESCE(SUM(page_view_count), 0) AS value FROM daily_rollups WHERE bucket_start_ms BETWEEN ? AND ?'
+      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs, accountId]
+      let sql = 'SELECT COALESCE(SUM(page_view_count), 0) AS value FROM daily_rollups WHERE bucket_start_ms BETWEEN ? AND ? AND account_id = ?'
       if (projectId) {
         sql += ' AND project_id = ?'
         params.push(projectId)
@@ -1173,6 +1469,7 @@ export class SqliteEventStore {
     }
 
     total += this.sumRawEdgesSync(
+      accountId,
       partition.edgeRanges,
       `SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END)`,
       projectId,
@@ -1181,29 +1478,32 @@ export class SqliteEventStore {
     return total
   }
 
-  private getTrackedProjectCountSync(resolved: ResolvedRange) {
+  private getTrackedProjectCountSync(accountId: string, resolved: ResolvedRange) {
     const row = this.db
       .prepare(`
         SELECT COUNT(DISTINCT project_id) AS count
         FROM raw_events
         WHERE occurred_at_ms BETWEEN ? AND ?
+          AND account_id = ?
       `)
-      .get(resolved.fromMs, resolved.toMs) as { count: number }
+      .get(resolved.fromMs, resolved.toMs, accountId) as { count: number }
 
     return row.count
   }
 
   private getDistinctCountSync(
+    accountId: string,
     column: 'visitor_key' | 'session_id',
     resolved: ResolvedRange,
     minOccurredAtMs?: number,
     projectId?: string,
   ) {
-    const params: Array<string | number> = [resolved.fromMs, resolved.toMs]
+    const params: Array<string | number> = [resolved.fromMs, resolved.toMs, accountId]
     let sql = `
       SELECT COUNT(DISTINCT ${column}) AS count
       FROM raw_events
       WHERE occurred_at_ms BETWEEN ? AND ?
+        AND account_id = ?
         AND ${column} IS NOT NULL
         AND ${column} != ''
     `
@@ -1222,31 +1522,33 @@ export class SqliteEventStore {
     return row.count
   }
 
-  private getDistinctCountsByProjectSync(resolved: ResolvedRange) {
+  private getDistinctCountsByProjectSync(accountId: string, resolved: ResolvedRange) {
     const rows = this.db
       .prepare(`
         SELECT project_id, COUNT(DISTINCT visitor_key) AS count
         FROM raw_events
         WHERE occurred_at_ms BETWEEN ? AND ?
+          AND account_id = ?
           AND visitor_key IS NOT NULL
           AND visitor_key != ''
         GROUP BY project_id
       `)
-      .all(resolved.fromMs, resolved.toMs) as Array<{ project_id: string; count: number }>
+      .all(resolved.fromMs, resolved.toMs, accountId) as Array<{ project_id: string; count: number }>
 
     return new Map(rows.map((row) => [row.project_id, row.count]))
   }
 
-  private getPageViewDayCountsSync(resolved: ResolvedRange, projectId?: string) {
+  private getPageViewDayCountsSync(accountId: string, resolved: ResolvedRange, projectId?: string) {
     const partition = partitionRangeByDay(resolved.fromMs, resolved.toMs)
     const counts = new Map<number, number>()
 
     if (partition.fullBucketFromMs !== null && partition.fullBucketToMs !== null) {
-      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs]
+      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs, accountId]
       let sql = `
         SELECT bucket_start_ms, SUM(page_view_count) AS value
         FROM daily_rollups
         WHERE bucket_start_ms BETWEEN ? AND ?
+          AND account_id = ?
       `
 
       if (projectId) {
@@ -1263,11 +1565,12 @@ export class SqliteEventStore {
     }
 
     for (const edge of partition.edgeRanges) {
-      const params: Array<string | number> = [edge.fromMs, edge.toMs]
+      const params: Array<string | number> = [edge.fromMs, edge.toMs, accountId]
       let sql = `
         SELECT bucket_start_ms, SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END) AS value
         FROM raw_events
         WHERE occurred_at_ms BETWEEN ? AND ?
+          AND account_id = ?
       `
 
       if (projectId) {
@@ -1287,18 +1590,20 @@ export class SqliteEventStore {
   }
 
   private getPageViewBreakdownSync(
+    accountId: string,
     column: 'path' | 'referrer' | 'device_type' | 'browser_name' | 'country_code' | 'project_id',
     resolved: ResolvedRange,
     projectId?: string,
   ) {
-    return this.getBreakdownSync(column, 'page_view_count', `SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END)`, resolved, projectId)
+    return this.getBreakdownSync(accountId, column, 'page_view_count', `SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END)`, resolved, projectId)
   }
 
-  private getEventBreakdownSync(column: 'event_name', resolved: ResolvedRange, projectId?: string) {
-    return this.getBreakdownSync(column, 'event_count', 'COUNT(*)', resolved, projectId)
+  private getEventBreakdownSync(accountId: string, column: 'event_name', resolved: ResolvedRange, projectId?: string) {
+    return this.getBreakdownSync(accountId, column, 'event_count', 'COUNT(*)', resolved, projectId)
   }
 
   private getBreakdownSync(
+    accountId: string,
     column: 'path' | 'referrer' | 'device_type' | 'browser_name' | 'country_code' | 'event_name' | 'project_id',
     rollupMetricColumn: 'page_view_count' | 'event_count',
     rawMetricSql: string,
@@ -1309,11 +1614,12 @@ export class SqliteEventStore {
     const counts = new Map<string, number>()
 
     if (partition.fullBucketFromMs !== null && partition.fullBucketToMs !== null) {
-      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs]
+      const params: Array<string | number> = [partition.fullBucketFromMs, partition.fullBucketToMs, accountId]
       let sql = `
         SELECT ${column} AS label, SUM(${rollupMetricColumn}) AS value
         FROM daily_rollups
         WHERE bucket_start_ms BETWEEN ? AND ?
+          AND account_id = ?
       `
 
       if (projectId) {
@@ -1332,11 +1638,12 @@ export class SqliteEventStore {
     }
 
     for (const edge of partition.edgeRanges) {
-      const params: Array<string | number> = [edge.fromMs, edge.toMs]
+      const params: Array<string | number> = [edge.fromMs, edge.toMs, accountId]
       let sql = `
         SELECT ${column} AS label, ${rawMetricSql} AS value
         FROM raw_events
         WHERE occurred_at_ms BETWEEN ? AND ?
+          AND account_id = ?
       `
 
       if (projectId) {
@@ -1358,6 +1665,7 @@ export class SqliteEventStore {
   }
 
   private sumRawEdgesSync(
+    accountId: string,
     edgeRanges: Array<{ fromMs: number; toMs: number }>,
     aggregateSql: string,
     projectId?: string,
@@ -1365,8 +1673,8 @@ export class SqliteEventStore {
     let total = 0
 
     for (const edge of edgeRanges) {
-      const params: Array<string | number> = [edge.fromMs, edge.toMs]
-      let sql = `SELECT COALESCE(${aggregateSql}, 0) AS value FROM raw_events WHERE occurred_at_ms BETWEEN ? AND ?`
+      const params: Array<string | number> = [edge.fromMs, edge.toMs, accountId]
+      let sql = `SELECT COALESCE(${aggregateSql}, 0) AS value FROM raw_events WHERE occurred_at_ms BETWEEN ? AND ? AND account_id = ?`
 
       if (projectId) {
         sql += ' AND project_id = ?'
@@ -1380,12 +1688,13 @@ export class SqliteEventStore {
     return total
   }
 
-  private getRangeEventsSync(resolved: ResolvedRange, projectId?: string) {
-    const params: Array<string | number> = [resolved.fromMs, resolved.toMs]
+  private getRangeEventsSync(accountId: string, resolved: ResolvedRange, projectId?: string) {
+    const params: Array<string | number> = [resolved.fromMs, resolved.toMs, accountId]
     let sql = `
       SELECT event_json
       FROM raw_events
       WHERE occurred_at_ms BETWEEN ? AND ?
+        AND account_id = ?
     `
 
     if (projectId) {
@@ -1400,6 +1709,7 @@ export class SqliteEventStore {
   }
 
   private getRecentEventRowsSync(
+    accountId: string,
     resolved: ResolvedRange,
     options: {
       projectId?: string | undefined
@@ -1411,7 +1721,7 @@ export class SqliteEventStore {
       limit: number
     },
   ) {
-    const params: Array<string | number> = [resolved.fromMs, resolved.toMs]
+    const params: Array<string | number> = [resolved.fromMs, resolved.toMs, accountId]
     let sql = `
       SELECT
         event_id,
@@ -1425,6 +1735,7 @@ export class SqliteEventStore {
         country_code
       FROM raw_events
       WHERE occurred_at_ms BETWEEN ? AND ?
+        AND account_id = ?
     `
 
     if (options.projectId) {
@@ -1483,7 +1794,7 @@ export class SqliteEventStore {
     }))
   }
 
-  private getRecentEventIdSync(row: RecentEventRow, resolved: ResolvedRange, projectId?: string) {
+  private getRecentEventIdSync(accountId: string, row: RecentEventRow, resolved: ResolvedRange, projectId?: string) {
     const params: Array<string | number> = [
       Date.parse(row.occurredAt),
       row.eventName,
@@ -1494,6 +1805,7 @@ export class SqliteEventStore {
       row.countryCode,
       resolved.fromMs,
       resolved.toMs,
+      accountId,
     ]
     let sql = `
       SELECT event_id
@@ -1506,6 +1818,7 @@ export class SqliteEventStore {
         AND browser_name = ?
         AND country_code = ?
         AND occurred_at_ms BETWEEN ? AND ?
+        AND account_id = ?
     `
 
     if (projectId) {

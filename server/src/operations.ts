@@ -1,8 +1,8 @@
-import { getProjectMetadata } from './projects.js'
 import { SqliteEventStore } from './store.js'
 import type {
   AlertRuleEvaluation,
   AlertsResponse,
+  AuthenticatedAccount,
   CollectorConfig,
   ConsentSnapshot,
   ExportRun,
@@ -274,26 +274,27 @@ const buildActivity = (rules: AlertRuleEvaluation[], health: HealthSnapshot, gen
 export async function buildAlertsResponse(
   store: SqliteEventStore,
   config: CollectorConfig,
+  account: AuthenticatedAccount,
   now = new Date(),
 ): Promise<AlertsResponse> {
   const range = lastCompleteUtcDayRange(now)
+  const projects = await store.listProjectsForAccount(account.accountId)
   const [currentOverview, baselineOverview, currentConsent, baselineConsent, health, projectComparisons] = await Promise.all([
-    store.getOverviewAnalytics(range.currentFrom.toISOString(), range.currentTo.toISOString(), 'day'),
-    store.getOverviewAnalytics(range.baselineFrom.toISOString(), range.baselineTo.toISOString(), 'day'),
-    store.getConsentSnapshot(range.currentFrom.toISOString(), range.currentTo.toISOString()),
-    store.getConsentSnapshot(range.baselineFrom.toISOString(), range.baselineTo.toISOString()),
+    store.getOverviewAnalytics(account.accountId, range.currentFrom.toISOString(), range.currentTo.toISOString(), 'day'),
+    store.getOverviewAnalytics(account.accountId, range.baselineFrom.toISOString(), range.baselineTo.toISOString(), 'day'),
+    store.getConsentSnapshot(account.accountId, range.currentFrom.toISOString(), range.currentTo.toISOString()),
+    store.getConsentSnapshot(account.accountId, range.baselineFrom.toISOString(), range.baselineTo.toISOString()),
     store.readHealthSnapshot(),
     Promise.all(
-      Array.from(config.allowedProjectIds).sort().map(async (projectId) => {
-        const project = getProjectMetadata(projectId)
+      projects.map(async (project) => {
         const [current, baseline] = await Promise.all([
-          store.getProjectOverviewAnalytics(project.id, range.currentFrom.toISOString(), range.currentTo.toISOString(), 'day'),
-          store.getProjectOverviewAnalytics(project.id, range.baselineFrom.toISOString(), range.baselineTo.toISOString(), 'day'),
+          store.getProjectOverviewAnalytics(account.accountId, project.projectId, range.currentFrom.toISOString(), range.currentTo.toISOString(), 'day'),
+          store.getProjectOverviewAnalytics(account.accountId, project.projectId, range.baselineFrom.toISOString(), range.baselineTo.toISOString(), 'day'),
         ])
 
         return {
-          projectId: project.id,
-          projectName: project.name,
+          projectId: project.projectId,
+          projectName: project.projectName,
           currentValue: getMetricValue(current.metrics, 'page_views'),
           baselineValue: getMetricValue(baseline.metrics, 'page_views'),
         }
@@ -305,7 +306,7 @@ export async function buildAlertsResponse(
     'workspace-traffic-drop',
     'Workspace traffic drop',
     'Workspace',
-    'Workspace',
+    account.displayName,
     getMetricValue(currentOverview.metrics, 'page_views'),
     getMetricValue(baselineOverview.metrics, 'page_views'),
   )
@@ -317,7 +318,7 @@ export async function buildAlertsResponse(
     'project-traffic-drop',
     'Project traffic drop',
     projectTrafficCandidate?.projectName || 'Tracked project',
-    'Tracked project',
+    account.displayName,
     projectTrafficCandidate?.currentValue || 0,
     projectTrafficCandidate?.baselineValue || 0,
   )
@@ -351,12 +352,13 @@ export async function buildAlertsResponse(
 export async function buildExportsResponse(
   store: SqliteEventStore,
   config: CollectorConfig,
+  account: AuthenticatedAccount,
   now = new Date(),
 ): Promise<ExportsResponse> {
   const [overview, pagesReport, referrersReport, health] = await Promise.all([
-    store.getOverviewAnalytics(null, null, 'day'),
-    store.getPagesReport(null, null, 'day'),
-    store.getReferrersReport(null, null, 'day'),
+    store.getOverviewAnalytics(account.accountId, null, null, 'day'),
+    store.getPagesReport(account.accountId, null, null, 'day'),
+    store.getReferrersReport(account.accountId, null, null, 'day'),
     store.readHealthSnapshot(),
   ])
 
@@ -377,8 +379,8 @@ export async function buildExportsResponse(
       reportSlug: 'executive' as const,
       cadence: 'weekly' as const,
       format: 'pdf_summary' as const,
-      owner: 'Workspace',
-      recipients: [],
+      owner: account.displayName,
+      recipients: [account.email],
       lastRunAt: weeklyLastRunAt.toISOString(),
       nextRunAt: weeklyNextRunAt.toISOString(),
       status: scheduleStatus,
@@ -392,8 +394,8 @@ export async function buildExportsResponse(
       reportSlug: 'referrers' as const,
       cadence: 'monthly' as const,
       format: 'pdf_summary' as const,
-      owner: 'Workspace',
-      recipients: [],
+      owner: account.displayName,
+      recipients: [account.email],
       lastRunAt: monthlyLastRunAt.toISOString(),
       nextRunAt: monthlyNextRunAt.toISOString(),
       status: scheduleStatus,
@@ -462,33 +464,31 @@ export async function buildExportsResponse(
 export async function buildWorkspaceSettingsResponse(
   store: SqliteEventStore,
   config: CollectorConfig,
+  account: AuthenticatedAccount,
   now = new Date(),
 ): Promise<WorkspaceSettingsResponse> {
-  const [health, projects] = await Promise.all([
-    store.readHealthSnapshot(),
-    Promise.all(
-      Array.from(config.allowedProjectIds).sort().map(async (projectId): Promise<WorkspaceProjectSetting> => {
-        const project = getProjectMetadata(projectId)
-        const lastEventAt = await store.getLatestEventAt(project.id)
-        const isLive = lastEventAt ? now.getTime() - Date.parse(lastEventAt) <= 7 * MS_PER_DAY : false
-        const projectStatus: WorkspaceProjectSetting['status'] = isLive ? 'live' : 'idle'
+  const [health, projects] = await Promise.all([store.readHealthSnapshot(), store.listProjectsForAccount(account.accountId)])
+  const workspaceProjects = await Promise.all(
+    projects.map(async (project): Promise<WorkspaceProjectSetting> => {
+      const lastEventAt = await store.getLatestEventAt(account.accountId, project.projectId)
+      const isLive = lastEventAt ? now.getTime() - Date.parse(lastEventAt) <= 7 * MS_PER_DAY : false
+      const projectStatus: WorkspaceProjectSetting['status'] = isLive ? 'live' : 'idle'
 
-        return {
-          projectId: project.id,
-          projectName: project.name,
-          retentionMonths: config.defaultRetentionMonths,
-          status: projectStatus,
-          lastEventAt,
-        }
-      }),
-    ),
-  ])
+      return {
+        projectId: project.projectId,
+        projectName: project.projectName,
+        retentionMonths: config.defaultRetentionMonths,
+        status: projectStatus,
+        lastEventAt,
+      }
+    }),
+  )
 
   return {
     generatedAt: now.toISOString(),
     workspace: {
-      id: 'pulse-workspace',
-      name: 'Pulse',
+      id: account.accountId,
+      name: account.displayName,
       roleModel: 'workspace_scoped',
       defaultRetentionMonths: config.defaultRetentionMonths,
       allowedRetentionMonths: [6, 12, 13],
@@ -522,7 +522,7 @@ export async function buildWorkspaceSettingsResponse(
         cannot: [],
       },
     ],
-    projects,
+    projects: workspaceProjects,
     controls: [
       {
         title: 'Workspace access',
