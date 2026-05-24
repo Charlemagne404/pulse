@@ -3,20 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Continental Pulse</title>
+    <title>Pulse | Privacy-First Website Analytics</title>
     <meta
       name="description"
-      content="Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across Continental websites and apps."
+      content="Create a project, install one script, and understand your traffic with privacy-first analytics for websites and web apps."
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="theme-color" content="#08111A" />
     <link rel="canonical" href="https://pulse.continental-hub.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Pulse" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Pulse | Privacy-First Website Analytics" />
+    <meta
+      property="og:description"
+      content="Create a project, install one script, and understand your traffic with privacy-first analytics for websites and web apps."
+    />
+    <meta property="og:url" content="https://pulse.continental-hub.com/" />
+    <meta property="og:image" content="https://pulse.continental-hub.com/landing/hero-earth-network-v2.png" />
+    <meta property="og:image:alt" content="Pulse analytics preview" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Pulse | Privacy-First Website Analytics" />
+    <meta
+      name="twitter:description"
+      content="Create a project, install one script, and understand your traffic with privacy-first analytics for websites and web apps."
+    />
+    <meta name="twitter:image" content="https://pulse.continental-hub.com/landing/hero-earth-network-v2.png" />
     <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="icon" type="image/png" href="/branding/pulse-logo.png" />
-    <link rel="apple-touch-icon" href="/branding/pulse-logo.png" />
+    <link rel="icon" href="/favicon.png" sizes="512x512" type="image/png" />
+    <link rel="shortcut icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -26,14 +43,33 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "Continental Pulse",
-        "url": "https://pulse.continental-hub.com/",
-        "description": "Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across Continental websites and apps.",
-        "publisher": {
-          "@type": "Organization",
-          "name": "Continental"
-        }
+        "@graph": [
+          {
+            "@type": "Organization",
+            "name": "Continental",
+            "url": "https://pulse.continental-hub.com/"
+          },
+          {
+            "@type": "WebSite",
+            "name": "Pulse",
+            "url": "https://pulse.continental-hub.com/",
+            "description": "Create a project, install one script, and understand your traffic with privacy-first analytics for websites and web apps.",
+            "inLanguage": "en",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": "https://pulse.continental-hub.com/docs/search?q={search_term_string}",
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Pulse",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": "https://pulse.continental-hub.com/",
+            "description": "Create a project, install one script, and understand your traffic with privacy-first analytics for websites and web apps."
+          }
+        ]
       }
     </script>
   </head>

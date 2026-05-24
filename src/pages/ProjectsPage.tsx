@@ -7,13 +7,15 @@ import { ProductShell } from '../components/ProductShell'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview, type AnalyticsMetric } from '../lib/analyticsApi'
 import { formatCount, formatMetricValue, formatTimestampLabel } from '../lib/analyticsUi'
-import { fetchWorkspaceSettings } from '../lib/productApi'
+import { deleteProject, fetchWorkspaceSettings } from '../lib/productApi'
 
 const getMetric = (metrics: AnalyticsMetric[], key: string) => metrics.find((metric) => metric.key === key)
 
 export function ProjectsPage() {
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [deleteProjectId, setDeleteProjectId] = useState('')
+  const [actionError, setActionError] = useState('')
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(`projects:index:${refreshNonce}`, async (signal) => {
     const workspace = await fetchWorkspaceSettings(signal)
     const projects = await Promise.all(
@@ -55,6 +57,27 @@ export function ProjectsPage() {
       projects,
     }
   })
+
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
+    const confirmed = window.confirm(
+      `Delete ${projectName}? This removes the project and its collected analytics from Pulse.`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setDeleteProjectId(projectId)
+    setActionError('')
+
+    try {
+      await deleteProject(projectId)
+      setRefreshNonce((current) => current + 1)
+    } catch (deleteError) {
+      setActionError(deleteError instanceof Error ? deleteError.message : 'Could not delete the project.')
+    } finally {
+      setDeleteProjectId('')
+    }
+  }
 
   return (
     <ProductShell
@@ -100,6 +123,8 @@ export function ProjectsPage() {
           tone="warning"
         />
       ) : null}
+
+      {actionError ? <DataStateCard title="Project action failed" message={actionError} tone="error" /> : null}
 
       {isLoading && !data ? (
         <DataStateCard
@@ -165,6 +190,14 @@ export function ProjectsPage() {
                   <Link to={`/projects/${projectSlug}/settings`} className="secondary-button">
                     Project Settings
                   </Link>
+                  <button
+                    type="button"
+                    className="secondary-button danger-button"
+                    disabled={deleteProjectId === project.projectId}
+                    onClick={() => void handleDeleteProject(project.projectId, project.projectName)}
+                  >
+                    {deleteProjectId === project.projectId ? 'Deleting…' : 'Delete'}
+                  </button>
                 </div>
               </article>
             )
@@ -172,11 +205,13 @@ export function ProjectsPage() {
         </section>
       ) : null}
 
-      <AddProjectDialog
-        isOpen={isAddProjectOpen}
-        onClose={() => setIsAddProjectOpen(false)}
-        onProjectCreated={() => setRefreshNonce((current) => current + 1)}
-      />
+      {isAddProjectOpen ? (
+        <AddProjectDialog
+          isOpen={isAddProjectOpen}
+          onClose={() => setIsAddProjectOpen(false)}
+          onProjectCreated={() => setRefreshNonce((current) => current + 1)}
+        />
+      ) : null}
     </ProductShell>
   )
 }

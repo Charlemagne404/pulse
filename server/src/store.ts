@@ -11,15 +11,21 @@ import type {
   AnalyticsRange,
   ConsentSnapshot,
   CollectorConfig,
+  EventDebugDetailResponse,
   ProjectRecord,
+  ProjectVerificationCheck,
+  ProjectVerificationResponse,
   OverviewAnalyticsResponse,
   OverviewTopProjectRow,
   PagesReportResponse,
   ProjectAnalyticsResponse,
   RecentEventRow,
   RecentEventsPageResponse,
+  RejectedEventRow,
+  RejectedEventsPageResponse,
   ReferrersReportResponse,
   StoredPulseEvent,
+  VerificationRecommendation,
 } from './types.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -70,6 +76,11 @@ interface RecentEventsCursor {
   eventId: string
 }
 
+interface RecentRejectionsCursor {
+  receivedAtMs: number
+  rejectionId: number
+}
+
 interface HealthSnapshot {
   service: string
   status: 'ok' | 'degraded'
@@ -96,6 +107,38 @@ interface RegisteredProjectRow {
   owner_account_id: string
   owner_email: string
   owner_display_name: string
+}
+
+interface CollectorRejectionRecord {
+  accountId: string
+  receivedAt: string
+  receivedAtMs: number
+  eventId: string | null
+  eventName: string | null
+  projectId: string | null
+  occurredAt: string | null
+  occurredAtMs: number | null
+  path: string | null
+  deviceType: string | null
+  browserName: string | null
+  countryCode: string | null
+  consentState: string | null
+  consentMode: string | null
+  reason: string
+  field: string | null
+  requestIndex: number
+  payloadJson: string
+}
+
+interface RejectedEventsQuery {
+  fromRaw: string | null
+  toRaw: string | null
+  granularityRaw: string | null
+  projectId?: string | undefined
+  eventName?: string | undefined
+  pathPrefix?: string | undefined
+  limitRaw?: string | null
+  cursorRaw?: string | null
 }
 
 const round = (value: number, digits = 1) => {
@@ -286,6 +329,30 @@ const decodeCursor = (value: string | null | undefined): RecentEventsCursor | nu
 const encodeCursor = (cursor: RecentEventsCursor) =>
   Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
 
+const decodeRejectionsCursor = (value: string | null | undefined): RecentRejectionsCursor | null => {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as RecentRejectionsCursor
+    if (
+      !Number.isFinite(parsed.receivedAtMs) ||
+      !Number.isFinite(parsed.rejectionId) ||
+      parsed.rejectionId <= 0
+    ) {
+      throw new Error('Invalid cursor.')
+    }
+
+    return parsed
+  } catch {
+    throw new Error('Invalid cursor.')
+  }
+}
+
+const encodeRejectionsCursor = (cursor: RecentRejectionsCursor) =>
+  Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url')
+
 const partitionRangeByDay = (fromMs: number, toMs: number): DayPartition => {
   const fromDayStart = startOfUtcDay(new Date(fromMs))
   const toDayStart = startOfUtcDay(new Date(toMs))
@@ -352,6 +419,16 @@ export class SqliteEventStore {
 
     this.insertEventsSync(events)
     void this.runMaintenance()
+  }
+
+  async logRejections(rejections: CollectorRejectionRecord[]) {
+    await this.readyPromise
+
+    if (!rejections.length) {
+      return
+    }
+
+    this.insertRejectionsSync(rejections)
   }
 
   async bootstrapAccountProjects(account: AuthenticatedAccount) {
@@ -448,6 +525,66 @@ export class SqliteEventStore {
     }
 
     return this.getProjectRecordSync(input.projectId)!
+  }
+
+  async deleteProjectForAccount(accountId: string, projectId: string) {
+    await this.readyPromise
+
+    const project = await this.getProjectRecordForAccount(accountId, projectId)
+    if (!project) {
+      return null
+    }
+
+    this.db.exec('BEGIN IMMEDIATE')
+
+    try {
+      this.db
+        .prepare(
+          `
+            DELETE FROM raw_events
+            WHERE account_id = ?
+              AND project_id = ?
+          `,
+        )
+        .run(accountId, projectId)
+
+      this.db
+        .prepare(
+          `
+            DELETE FROM daily_rollups
+            WHERE account_id = ?
+              AND project_id = ?
+          `,
+        )
+        .run(accountId, projectId)
+
+      this.db
+        .prepare(
+          `
+            DELETE FROM registered_projects
+            WHERE owner_account_id = ?
+              AND project_id = ?
+          `,
+        )
+        .run(accountId, projectId)
+
+      this.db
+        .prepare(
+          `
+            DELETE FROM collector_rejections
+            WHERE account_id = ?
+              AND project_id = ?
+          `,
+        )
+        .run(accountId, projectId)
+
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+
+    return project
   }
 
   async listProjectsForAccount(accountId: string): Promise<ProjectRecord[]> {
@@ -589,6 +726,64 @@ export class SqliteEventStore {
         )
 
         markDirty.run(bucketStartMs)
+      }
+
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  private insertRejectionsSync(rejections: CollectorRejectionRecord[]) {
+    this.db.exec('BEGIN IMMEDIATE')
+
+    try {
+      const insert = this.db.prepare(`
+        INSERT INTO collector_rejections (
+          account_id,
+          received_at,
+          received_at_ms,
+          event_id,
+          event_name,
+          project_id,
+          occurred_at,
+          occurred_at_ms,
+          path,
+          device_type,
+          browser_name,
+          country_code,
+          consent_state,
+          consent_mode,
+          reason,
+          field,
+          request_index,
+          payload_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const rejection of rejections) {
+        insert.run(
+          rejection.accountId,
+          rejection.receivedAt,
+          rejection.receivedAtMs,
+          rejection.eventId,
+          rejection.eventName,
+          rejection.projectId,
+          rejection.occurredAt,
+          rejection.occurredAtMs,
+          rejection.path,
+          rejection.deviceType,
+          rejection.browserName,
+          rejection.countryCode,
+          rejection.consentState,
+          rejection.consentMode,
+          rejection.reason,
+          rejection.field,
+          rejection.requestIndex,
+          rejection.payloadJson,
+        )
       }
 
       this.db.exec('COMMIT')
@@ -978,6 +1173,231 @@ export class SqliteEventStore {
     }
   }
 
+  async getEventDebugDetail(accountId: string, eventId: string): Promise<EventDebugDetailResponse | null> {
+    await this.ensureCurrentReadModel()
+
+    const row = this.db
+      .prepare(`
+        SELECT event_json
+        FROM raw_events
+        WHERE account_id = ?
+          AND event_id = ?
+      `)
+      .get(accountId, eventId) as { event_json: string } | undefined
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      eventId,
+      payload: JSON.parse(row.event_json) as StoredPulseEvent,
+    }
+  }
+
+  async getRejectedEventsPage(accountId: string, query: RejectedEventsQuery): Promise<RejectedEventsPageResponse> {
+    await this.ensureCurrentReadModel()
+    const resolved = resolveRange(this.getRejectionBoundsSync(accountId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
+    const limit = clampLimit(query.limitRaw, 10)
+    const rows = this.getRejectedEventRowsSync(accountId, resolved, {
+      projectId: query.projectId,
+      eventName: query.eventName,
+      pathPrefix: query.pathPrefix,
+      cursor: decodeRejectionsCursor(query.cursorRaw),
+      limit: limit + 1,
+    })
+
+    const visibleRows = rows.slice(0, limit)
+    const cursorRow = visibleRows[visibleRows.length - 1]
+    const nextCursor =
+      rows.length > limit && cursorRow
+        ? encodeRejectionsCursor({
+            receivedAtMs: Date.parse(cursorRow.receivedAt),
+            rejectionId: cursorRow.rejectionId,
+          })
+        : null
+
+    const filters: RejectedEventsPageResponse['filters'] = {}
+    if (query.projectId) {
+      filters.projectId = query.projectId
+    }
+    if (query.eventName) {
+      filters.eventName = query.eventName
+    }
+    if (query.pathPrefix) {
+      filters.pathPrefix = query.pathPrefix
+    }
+
+    return {
+      range: resolved.range,
+      filters,
+      rows: visibleRows,
+      page: {
+        limit,
+        nextCursor,
+        hasMore: nextCursor !== null,
+      },
+    }
+  }
+
+  async getProjectVerification(accountId: string, projectId: string): Promise<ProjectVerificationResponse | null> {
+    await this.ensureCurrentReadModel()
+    const project = await this.getProjectRecordForAccount(accountId, projectId)
+
+    if (!project) {
+      return null
+    }
+
+    const latestAcceptedEvent = this.getLatestAcceptedEventSync(accountId, projectId)
+    const latestPageViewEvent = this.getLatestAcceptedEventSync(accountId, projectId, 'page_view')
+    const latestRejectedEvent = this.getLatestRejectedEventSync(accountId, projectId)
+    const recentAcceptedEvents = this.getRecentEventRowsByProjectSync(accountId, projectId, 5)
+    const recentRejectedEvents = this.getRecentRejectedRowsByProjectSync(accountId, projectId, 5)
+    const latestConsentSignal = this.pickLatestConsentSignal(latestAcceptedEvent, latestRejectedEvent)
+    const distinctTrackedPages = this.getDistinctTrackedPageCountSync(accountId, projectId)
+
+    const checks: ProjectVerificationCheck[] = [
+      latestPageViewEvent
+        ? {
+            key: 'script_installed',
+            label: 'Script installed',
+            status: 'pass',
+            detail: `Pulse received a page view for ${project.projectId} at ${latestPageViewEvent.occurredAt}.`,
+          }
+        : latestAcceptedEvent
+          ? {
+              key: 'script_installed',
+              label: 'Script installed',
+              status: 'warn',
+              detail: 'Pulse is receiving events for this project, but no page_view has been accepted yet.',
+            }
+          : {
+              key: 'script_installed',
+              label: 'Script installed',
+              status: 'fail',
+              detail: 'Pulse has not accepted a page_view for this project yet.',
+            },
+      {
+        key: 'project_id',
+        label: 'Project ID valid',
+        status: 'pass',
+        detail: `Pulse recognizes ${project.projectId} as a registered project in this workspace.`,
+      },
+      latestAcceptedEvent
+        ? {
+            key: 'last_event',
+            label: 'Last event seen',
+            status: 'pass',
+            detail: `Latest accepted event: ${latestAcceptedEvent.eventName} on ${latestAcceptedEvent.page.path} at ${latestAcceptedEvent.occurredAt}.`,
+          }
+        : {
+            key: 'last_event',
+            label: 'Last event seen',
+            status: 'fail',
+            detail: 'No accepted events have been recorded for this project yet.',
+          },
+      latestConsentSignal
+        ? {
+            key: 'consent',
+            label: 'Consent state seen',
+            status:
+              latestConsentSignal.consentState === 'granted'
+                ? 'pass'
+                : latestConsentSignal.consentState === 'unknown'
+                  ? 'warn'
+                  : 'warn',
+            detail:
+              latestConsentSignal.consentState === 'granted'
+                ? `Latest consent signal was granted in ${latestConsentSignal.consentMode} mode.`
+                : latestConsentSignal.consentState === 'unknown'
+                  ? `Latest consent signal was unknown in ${latestConsentSignal.consentMode} mode. Pulse only accepts minimal anonymous page views in this state.`
+                  : 'Latest consent signal was denied, so Pulse rejected analytics for that request.',
+          }
+        : {
+            key: 'consent',
+            label: 'Consent state seen',
+            status: 'fail',
+            detail: 'Pulse has not seen a consent signal for this project yet.',
+          },
+      recentRejectedEvents.length === 0
+        ? {
+            key: 'script_health',
+            label: 'Script health',
+            status: latestAcceptedEvent ? 'pass' : 'warn',
+            detail: latestAcceptedEvent
+              ? 'No recent collector rejections were recorded for this project.'
+              : 'No collector rejections were linked to this project yet, but accepted traffic has not appeared either.',
+          }
+        : {
+            key: 'script_health',
+            label: 'Script health',
+            status: 'warn',
+            detail: `Recent collector rejections need review. Latest issue: ${recentRejectedEvents[0]?.reason || 'Unknown rejection'}.`,
+          },
+    ]
+
+    const recommendations: VerificationRecommendation[] = []
+
+    if (!latestPageViewEvent) {
+      recommendations.push({
+        title: 'Confirm the snippet is live on a real page',
+        detail: 'Paste the generated script into the shared layout or document head, deploy it, and open one live page before checking again.',
+      })
+    }
+
+    if (project.integrationPreset === 'spa' && latestPageViewEvent && distinctTrackedPages <= 1) {
+      recommendations.push({
+        title: 'Check SPA route tracking',
+        detail: 'Only one tracked path has appeared so far. Open a second route and confirm pulse.page() fires on navigation changes.',
+      })
+    }
+
+    if (latestConsentSignal?.consentState === 'unknown') {
+      recommendations.push({
+        title: 'Review consent defaults',
+        detail: 'Pulse is seeing unknown consent. Confirm the site upgrades to granted consent when the analytics banner allows it.',
+      })
+    }
+
+    if (latestConsentSignal?.consentState === 'denied') {
+      recommendations.push({
+        title: 'Analytics is blocked by denied consent',
+        detail: 'Pulse received traffic for this project, but consent was denied. Accepted analytics will stay empty until consent permits collection.',
+      })
+    }
+
+    if (recentRejectedEvents.some((event) => event.field === 'projectId')) {
+      recommendations.push({
+        title: 'Double-check the project ID in the snippet',
+        detail: `The collector rejected at least one request on the projectId field. Confirm the installed script still uses ${project.projectId}.`,
+      })
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push({
+        title: 'The install looks healthy',
+        detail: 'Pulse has enough signal to confirm the project is collecting. Keep using the event debugger to validate paths and custom events.',
+      })
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      project,
+      summary: {
+        scriptInstalled: latestPageViewEvent !== null,
+        projectIdValid: true,
+        lastEventAt: latestAcceptedEvent?.occurredAt || null,
+        lastPageViewAt: latestPageViewEvent?.occurredAt || null,
+        latestConsentState: latestConsentSignal?.consentState || null,
+        latestConsentMode: latestConsentSignal?.consentMode || null,
+      },
+      checks,
+      recentAcceptedEvents,
+      recentRejectedEvents,
+      recommendations,
+    }
+  }
+
   private async initialize() {
     this.initializeSchemaSync()
     await this.migrateLegacyFileIfNeeded()
@@ -1097,10 +1517,38 @@ export class SqliteEventStore {
       );
 
       CREATE INDEX IF NOT EXISTS registered_projects_owner_account_idx ON registered_projects (owner_account_id, project_name);
+
+      CREATE TABLE IF NOT EXISTS collector_rejections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id TEXT NOT NULL DEFAULT '',
+        received_at TEXT NOT NULL,
+        received_at_ms INTEGER NOT NULL,
+        event_id TEXT,
+        event_name TEXT,
+        project_id TEXT,
+        occurred_at TEXT,
+        occurred_at_ms INTEGER,
+        path TEXT,
+        device_type TEXT,
+        browser_name TEXT,
+        country_code TEXT,
+        consent_state TEXT,
+        consent_mode TEXT,
+        reason TEXT NOT NULL,
+        field TEXT,
+        request_index INTEGER NOT NULL,
+        payload_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS collector_rejections_account_received_idx
+        ON collector_rejections (account_id, received_at_ms DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS collector_rejections_account_project_received_idx
+        ON collector_rejections (account_id, project_id, received_at_ms DESC, id DESC);
     `)
 
     this.ensureColumnSync('raw_events', 'account_id', "TEXT NOT NULL DEFAULT ''")
     this.ensureColumnSync('daily_rollups', 'account_id', "TEXT NOT NULL DEFAULT ''")
+    this.ensureColumnSync('collector_rejections', 'occurred_at_ms', 'INTEGER')
   }
 
   private async migrateLegacyFileIfNeeded() {
@@ -1255,6 +1703,10 @@ export class SqliteEventStore {
         DELETE FROM raw_events
         WHERE occurred_at_ms < ?
       `)
+      const deleteOldRejections = this.db.prepare(`
+        DELETE FROM collector_rejections
+        WHERE received_at_ms < ?
+      `)
       const markDirty = this.db.prepare('INSERT OR IGNORE INTO dirty_rollup_buckets (bucket_start_ms) VALUES (?)')
 
       const bucketRows = listBuckets.all(cutoffMs) as Array<{ bucket_start_ms: number }>
@@ -1264,6 +1716,7 @@ export class SqliteEventStore {
 
       const result = deleteOldEvents.run(cutoffMs) as { changes: number }
       deletedEvents += result.changes
+      deleteOldRejections.run(cutoffMs)
 
       for (const bucketStartMs of deletedBuckets) {
         markDirty.run(bucketStartMs)
@@ -1379,6 +1832,12 @@ export class SqliteEventStore {
       WHERE account_id = ''
         AND project_id = ?
     `)
+    const updateRejections = this.db.prepare(`
+      UPDATE collector_rejections
+      SET account_id = ?
+      WHERE account_id = ''
+        AND project_id = ?
+    `)
 
     this.db.exec('BEGIN IMMEDIATE')
 
@@ -1386,6 +1845,7 @@ export class SqliteEventStore {
       for (const projectId of projectIds) {
         updateRaw.run(accountId, projectId)
         updateRollups.run(accountId, projectId)
+        updateRejections.run(accountId, projectId)
       }
 
       this.db.exec('COMMIT')
@@ -1423,6 +1883,32 @@ export class SqliteEventStore {
     return {
       minOccurredAtMs: row.min_occurred_at_ms,
       maxOccurredAtMs: row.max_occurred_at_ms,
+    }
+  }
+
+  private getRejectionBoundsSync(accountId: string, projectId?: string): TimestampBounds {
+    const params: Array<string> = [accountId]
+    let sql = `
+      SELECT
+        MIN(COALESCE(occurred_at_ms, received_at_ms)) AS min_received_at_ms,
+        MAX(COALESCE(occurred_at_ms, received_at_ms)) AS max_received_at_ms
+      FROM collector_rejections
+      WHERE account_id = ?
+    `
+
+    if (projectId) {
+      sql += ' AND project_id = ?'
+      params.push(projectId)
+    }
+
+    const row = this.db.prepare(sql).get(...params) as {
+      min_received_at_ms: number | null
+      max_received_at_ms: number | null
+    }
+
+    return {
+      minOccurredAtMs: row.min_received_at_ms,
+      maxOccurredAtMs: row.max_received_at_ms,
     }
   }
 
@@ -1725,6 +2211,7 @@ export class SqliteEventStore {
     let sql = `
       SELECT
         event_id,
+        received_at,
         occurred_at_ms,
         occurred_at,
         event_name,
@@ -1732,7 +2219,9 @@ export class SqliteEventStore {
         path,
         device_type,
         browser_name,
-        country_code
+        country_code,
+        consent_state,
+        consent_mode
       FROM raw_events
       WHERE occurred_at_ms BETWEEN ? AND ?
         AND account_id = ?
@@ -1773,6 +2262,7 @@ export class SqliteEventStore {
 
     const rows = this.db.prepare(sql).all(...params) as Array<{
       event_id: string
+      received_at: string
       occurred_at_ms: number
       occurred_at: string
       event_name: string
@@ -1781,9 +2271,13 @@ export class SqliteEventStore {
       device_type: string
       browser_name: string
       country_code: string
+      consent_state: RecentEventRow['consentState']
+      consent_mode: RecentEventRow['consentMode']
     }>
 
     return rows.map((row) => ({
+      eventId: row.event_id,
+      receivedAt: row.received_at,
       occurredAt: row.occurred_at,
       eventName: row.event_name,
       projectId: row.project_id,
@@ -1791,6 +2285,8 @@ export class SqliteEventStore {
       deviceType: row.device_type as RecentEventRow['deviceType'],
       browserName: row.browser_name,
       countryCode: row.country_code,
+      consentState: row.consent_state,
+      consentMode: row.consent_mode,
     }))
   }
 
@@ -1830,5 +2326,226 @@ export class SqliteEventStore {
 
     const result = this.db.prepare(sql).get(...params) as { event_id: string } | undefined
     return result?.event_id || ''
+  }
+
+  private getRejectedEventRowsSync(
+    accountId: string,
+    resolved: ResolvedRange,
+    options: {
+      projectId?: string | undefined
+      eventName?: string | undefined
+      pathPrefix?: string | undefined
+      cursor?: RecentRejectionsCursor | null | undefined
+      limit: number
+    },
+  ) {
+    const params: Array<string | number> = [resolved.fromMs, resolved.toMs, accountId]
+    let sql = `
+      SELECT
+        id,
+        received_at,
+        received_at_ms,
+        event_id,
+        event_name,
+        project_id,
+        path,
+        device_type,
+        browser_name,
+        country_code,
+        consent_state,
+        consent_mode,
+        reason,
+        field,
+        payload_json
+      FROM collector_rejections
+      WHERE COALESCE(occurred_at_ms, received_at_ms) BETWEEN ? AND ?
+        AND account_id = ?
+    `
+
+    if (options.projectId) {
+      sql += ' AND project_id = ?'
+      params.push(options.projectId)
+    }
+
+    if (options.eventName) {
+      sql += ' AND event_name = ?'
+      params.push(options.eventName)
+    }
+
+    if (options.pathPrefix) {
+      sql += ' AND path LIKE ?'
+      params.push(`${options.pathPrefix}%`)
+    }
+
+    if (options.cursor) {
+      sql += ' AND (received_at_ms < ? OR (received_at_ms = ? AND id < ?))'
+      params.push(options.cursor.receivedAtMs, options.cursor.receivedAtMs, options.cursor.rejectionId)
+    }
+
+    sql += ' ORDER BY received_at_ms DESC, id DESC LIMIT ?'
+    params.push(options.limit)
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      id: number
+      received_at: string
+      received_at_ms: number
+      event_id: string | null
+      event_name: string | null
+      project_id: string | null
+      path: string | null
+      device_type: string | null
+      browser_name: string | null
+      country_code: string | null
+      consent_state: RejectedEventRow['consentState']
+      consent_mode: RejectedEventRow['consentMode']
+      reason: string
+      field: string | null
+      payload_json: string
+    }>
+
+    return rows.map((row) => ({
+      rejectionId: row.id,
+      receivedAt: row.received_at,
+      eventId: row.event_id,
+      eventName: row.event_name,
+      projectId: row.project_id,
+      path: row.path,
+      deviceType: row.device_type,
+      browserName: row.browser_name,
+      countryCode: row.country_code,
+      consentState: row.consent_state,
+      consentMode: row.consent_mode,
+      reason: row.reason,
+      field: row.field,
+      payload: JSON.parse(row.payload_json) as unknown,
+    }))
+  }
+
+  private getRecentEventRowsByProjectSync(accountId: string, projectId: string, limit: number) {
+    return this.getRecentEventRowsSync(
+      accountId,
+      {
+        range: {
+          from: new Date(0).toISOString(),
+          to: new Date().toISOString(),
+          granularity: 'day',
+        },
+        fromMs: 0,
+        toMs: Date.now(),
+      },
+      { projectId, limit },
+    )
+  }
+
+  private getRecentRejectedRowsByProjectSync(accountId: string, projectId: string, limit: number) {
+    return this.getRejectedEventRowsSync(
+      accountId,
+      {
+        range: {
+          from: new Date(0).toISOString(),
+          to: new Date().toISOString(),
+          granularity: 'day',
+        },
+        fromMs: 0,
+        toMs: Date.now(),
+      },
+      { projectId, limit },
+    )
+  }
+
+  private getLatestAcceptedEventSync(accountId: string, projectId: string, eventName?: string) {
+    const params: Array<string> = [accountId, projectId]
+    let sql = `
+      SELECT event_json
+      FROM raw_events
+      WHERE account_id = ?
+        AND project_id = ?
+    `
+
+    if (eventName) {
+      sql += ' AND event_name = ?'
+      params.push(eventName)
+    }
+
+    sql += ' ORDER BY occurred_at_ms DESC, event_id DESC LIMIT 1'
+
+    const row = this.db.prepare(sql).get(...params) as { event_json: string } | undefined
+    return row ? (JSON.parse(row.event_json) as StoredPulseEvent) : null
+  }
+
+  private getLatestRejectedEventSync(accountId: string, projectId: string) {
+    const row = this.db
+      .prepare(`
+        SELECT received_at, consent_state, consent_mode
+        FROM collector_rejections
+        WHERE account_id = ?
+          AND project_id = ?
+        ORDER BY received_at_ms DESC, id DESC
+        LIMIT 1
+      `)
+      .get(accountId, projectId) as
+      | {
+          received_at: string
+          consent_state: RejectedEventRow['consentState']
+          consent_mode: RejectedEventRow['consentMode']
+        }
+      | undefined
+
+    return row
+      ? {
+          occurredAt: row.received_at,
+          consentState: row.consent_state,
+          consentMode: row.consent_mode,
+        }
+      : null
+  }
+
+  private pickLatestConsentSignal(
+    acceptedEvent: StoredPulseEvent | null,
+    rejectedEvent:
+      | {
+          occurredAt: string
+          consentState: RejectedEventRow['consentState']
+          consentMode: RejectedEventRow['consentMode']
+        }
+      | null,
+  ) {
+    if (!acceptedEvent && !rejectedEvent) {
+      return null
+    }
+
+    if (!acceptedEvent) {
+      return rejectedEvent
+    }
+
+    if (!rejectedEvent) {
+      return {
+        occurredAt: acceptedEvent.occurredAt,
+        consentState: acceptedEvent.consent.state,
+        consentMode: acceptedEvent.consent.mode,
+      }
+    }
+
+    return Date.parse(rejectedEvent.occurredAt) > Date.parse(acceptedEvent.occurredAt)
+      ? rejectedEvent
+      : {
+          occurredAt: acceptedEvent.occurredAt,
+          consentState: acceptedEvent.consent.state,
+          consentMode: acceptedEvent.consent.mode,
+        }
+  }
+
+  private getDistinctTrackedPageCountSync(accountId: string, projectId: string) {
+    const row = this.db
+      .prepare(`
+        SELECT COUNT(DISTINCT path) AS count
+        FROM raw_events
+        WHERE account_id = ?
+          AND project_id = ?
+          AND event_name = 'page_view'
+      `)
+      .get(accountId, projectId) as { count: number }
+
+    return row.count
   }
 }

@@ -58,7 +58,7 @@ export function MarketingChrome({
             </div>
 
             <nav className="footer-links" aria-label="Footer links">
-              <Link to="/legal/privacy">Privacy</Link>
+              <Link to="/privacy">Privacy</Link>
               <Link to="/legal/imprint">Imprint</Link>
               <Link to="/legal/terms">Terms</Link>
               <a href={STATUS_URL}>Status</a>

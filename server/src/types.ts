@@ -151,6 +151,8 @@ export interface AnalyticsBreakdownRow {
 }
 
 export interface RecentEventRow {
+  eventId: string
+  receivedAt: string
   occurredAt: string
   eventName: string
   projectId: string
@@ -158,6 +160,8 @@ export interface RecentEventRow {
   deviceType: DeviceType
   browserName: string
   countryCode: string
+  consentState: ConsentState
+  consentMode: ConsentMode
 }
 
 export interface OverviewTopProjectRow {
@@ -230,6 +234,74 @@ export interface RecentEventsPageResponse {
     nextCursor: string | null
     hasMore: boolean
   }
+}
+
+export interface EventDebugDetailResponse {
+  eventId: string
+  payload: StoredPulseEvent
+}
+
+export interface RejectedEventRow {
+  rejectionId: number
+  receivedAt: string
+  eventId: string | null
+  eventName: string | null
+  projectId: string | null
+  path: string | null
+  deviceType: string | null
+  browserName: string | null
+  countryCode: string | null
+  consentState: ConsentState | null
+  consentMode: ConsentMode | null
+  reason: string
+  field: string | null
+  payload: unknown
+}
+
+export interface RejectedEventsPageResponse {
+  range: AnalyticsRange
+  filters: {
+    projectId?: string
+    eventName?: string
+    pathPrefix?: string
+  }
+  rows: RejectedEventRow[]
+  page: {
+    limit: number
+    nextCursor: string | null
+    hasMore: boolean
+  }
+}
+
+export type VerificationCheckStatus = 'pass' | 'warn' | 'fail'
+
+export interface ProjectVerificationCheck {
+  key: 'script_installed' | 'project_id' | 'last_event' | 'consent' | 'script_health'
+  label: string
+  status: VerificationCheckStatus
+  detail: string
+}
+
+export interface VerificationRecommendation {
+  title: string
+  detail: string
+}
+
+export interface ProjectVerificationResponse {
+  generatedAt: string
+  project: ProjectRecord
+  summary: {
+    scriptInstalled: boolean
+    projectIdValid: boolean
+    lastEventAt: string | null
+    lastPageViewAt: string | null
+    latestConsentState: ConsentState | null
+    latestConsentMode: ConsentMode | null
+  }
+  checks: ProjectVerificationCheck[]
+  recentAcceptedEvents: RecentEventRow[]
+  recentRejectedEvents: RejectedEventRow[]
+  recommendations: VerificationRecommendation[]
 }
 
 export interface ConsentSnapshot {

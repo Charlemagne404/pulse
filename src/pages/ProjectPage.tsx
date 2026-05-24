@@ -4,6 +4,7 @@ import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { LineChart } from '../components/LineChart'
 import { MetricCard } from '../components/MetricCard'
+import { ProjectInstallVerificationPanel } from '../components/ProjectInstallVerificationPanel'
 import { ProductShell } from '../components/ProductShell'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { cycleIndex, type GranularityOption } from '../lib/analytics'
@@ -141,6 +142,13 @@ export function ProjectPage() {
           message={`No tracked activity was returned for ${projectName} in ${formatAnalyticsRangeLabel(data.range)}.`}
         />
       ) : null}
+
+      <ProjectInstallVerificationPanel
+        projectId={projectSlug}
+        title="Install verification"
+        description="Confirm that the tracking script is live, the project ID is valid, Pulse saw the first page view, and recent collector issues are visible."
+        autoRefresh
+      />
 
       {data && hasData ? (
         <>

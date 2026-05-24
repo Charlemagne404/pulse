@@ -28,6 +28,8 @@ export interface AnalyticsBreakdownRow {
 }
 
 export interface RecentEventRow {
+  eventId: string
+  receivedAt: string
   occurredAt: string
   eventName: string
   projectId: string
@@ -35,6 +37,8 @@ export interface RecentEventRow {
   deviceType: string
   browserName: string
   countryCode: string
+  consentState: 'unknown' | 'denied' | 'granted'
+  consentMode: 'strict' | 'standard'
 }
 
 export interface OverviewTopProjectRow {
@@ -102,6 +106,43 @@ export interface RecentEventsPageResponse {
     pathPrefix?: string
   }
   rows: RecentEventRow[]
+  page: {
+    limit: number
+    hasMore: boolean
+    nextCursor: string | null
+  }
+}
+
+export interface EventDebugDetailResponse {
+  eventId: string
+  payload: unknown
+}
+
+export interface RejectedEventRow {
+  rejectionId: number
+  receivedAt: string
+  eventId: string | null
+  eventName: string | null
+  projectId: string | null
+  path: string | null
+  deviceType: string | null
+  browserName: string | null
+  countryCode: string | null
+  consentState: 'unknown' | 'denied' | 'granted' | null
+  consentMode: 'strict' | 'standard' | null
+  reason: string
+  field: string | null
+  payload: unknown
+}
+
+export interface RejectedEventsPageResponse {
+  range: AnalyticsRange
+  filters: {
+    projectId?: string
+    eventName?: string
+    pathPrefix?: string
+  }
+  rows: RejectedEventRow[]
   page: {
     limit: number
     hasMore: boolean
@@ -222,3 +263,9 @@ export const fetchReferrersReport = (options: AnalyticsQueryOptions = {}, signal
 
 export const fetchRecentEventsPage = (options: RecentEventsQueryOptions = {}, signal?: AbortSignal) =>
   requestJson<RecentEventsPageResponse>('/v1/analytics/events/recent', options, signal)
+
+export const fetchEventDebugDetail = (eventId: string, signal?: AbortSignal) =>
+  requestJson<EventDebugDetailResponse>(`/v1/analytics/events/${encodeURIComponent(eventId)}`, {}, signal)
+
+export const fetchRejectedEventsPage = (options: RecentEventsQueryOptions = {}, signal?: AbortSignal) =>
+  requestJson<RejectedEventsPageResponse>('/v1/analytics/events/rejected', options, signal)

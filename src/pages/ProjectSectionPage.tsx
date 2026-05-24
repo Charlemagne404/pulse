@@ -1,4 +1,5 @@
-import { Link, NavLink, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { DataStateCard } from '../components/DataStateCard'
 import { AppIcon } from '../components/Icon'
 import { ProductShell } from '../components/ProductShell'
@@ -6,7 +7,7 @@ import { ProgressList, type ProgressItem } from '../components/ProgressList'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview } from '../lib/analyticsApi'
 import { formatCount, formatTimestampLabel, getProjectName } from '../lib/analyticsUi'
-import { fetchWorkspaceSettings, type WorkspaceProjectSetting } from '../lib/productApi'
+import { deleteProject, fetchWorkspaceSettings, type WorkspaceProjectSetting } from '../lib/productApi'
 
 interface ProjectSectionPageProps {
   sectionKey: 'pages' | 'events' | 'conversions' | 'settings'
@@ -21,6 +22,9 @@ const sectionLabels = {
 
 export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
   const { projectSlug = '' } = useParams()
+  const navigate = useNavigate()
+  const [isDeletingProject, setIsDeletingProject] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const usesLiveOverview = sectionKey === 'pages' || sectionKey === 'events' || sectionKey === 'conversions'
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     `project-section:${projectSlug}:${sectionKey}`,
@@ -34,6 +38,27 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
   const projectSetting = settingsQuery.data?.projects.find((project) => project.projectId === projectSlug) || null
   const conversionItems = buildConversionItems(data?.eventTable || [])
   const settingsSections = buildProjectSettingsSections(projectSlug, projectSetting)
+
+  const handleDeleteProject = async () => {
+    const confirmed = window.confirm(
+      `Delete ${projectName}? This removes the project and its collected analytics from Pulse.`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setIsDeletingProject(true)
+    setDeleteError('')
+
+    try {
+      await deleteProject(projectSlug)
+      navigate('/projects', { replace: true })
+    } catch (deleteProjectError) {
+      setDeleteError(deleteProjectError instanceof Error ? deleteProjectError.message : 'Could not delete the project.')
+    } finally {
+      setIsDeletingProject(false)
+    }
+  }
 
   return (
     <ProductShell
@@ -199,6 +224,26 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
               </ul>
             </article>
           ))}
+          <article className="data-panel content-section-card danger-card">
+            <h2>Delete project</h2>
+            <p>Remove this project and its analytics if it should no longer be tracked in Pulse.</p>
+            <ul className="content-bullet-list">
+              <li>The project disappears from this workspace.</li>
+              <li>Collected analytics for this project are removed with it.</li>
+              <li>The install script stops working because the project ID no longer exists.</li>
+            </ul>
+            {deleteError ? <p className="empty-list-copy">{deleteError}</p> : null}
+            <div className="setup-footer-actions">
+              <button
+                type="button"
+                className="secondary-button danger-button"
+                disabled={isDeletingProject}
+                onClick={() => void handleDeleteProject()}
+              >
+                {isDeletingProject ? 'Deleting…' : 'Delete project'}
+              </button>
+            </div>
+          </article>
         </section>
       ) : null}
     </ProductShell>

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { SeoManager } from './components/SeoManager'
 import { AlertsPage } from './pages/AlertsPage'
 import { staticPages } from './data/content'
 import { STATUS_URL } from './lib/siteLinks'
@@ -42,6 +43,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ScrollManager />
+        <SeoManager />
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/pricing" element={<Navigate to="/docs" replace />} />

@@ -1,4 +1,5 @@
 import { getAccessToken } from '../auth/accessToken'
+import type { RecentEventRow, RejectedEventRow } from './analyticsApi'
 
 export type AlertRuleStatus = 'ok' | 'monitoring' | 'active'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
@@ -146,6 +147,35 @@ export interface ProjectRecord {
   ownerDisplayName: string
 }
 
+export interface ProjectVerificationCheck {
+  key: 'script_installed' | 'project_id' | 'last_event' | 'consent' | 'script_health'
+  label: string
+  status: 'pass' | 'warn' | 'fail'
+  detail: string
+}
+
+export interface VerificationRecommendation {
+  title: string
+  detail: string
+}
+
+export interface ProjectVerificationResponse {
+  generatedAt: string
+  project: ProjectRecord
+  summary: {
+    scriptInstalled: boolean
+    projectIdValid: boolean
+    lastEventAt: string | null
+    lastPageViewAt: string | null
+    latestConsentState: 'unknown' | 'denied' | 'granted' | null
+    latestConsentMode: 'strict' | 'standard' | null
+  }
+  checks: ProjectVerificationCheck[]
+  recentAcceptedEvents: RecentEventRow[]
+  recentRejectedEvents: RejectedEventRow[]
+  recommendations: VerificationRecommendation[]
+}
+
 interface ApiErrorPayload {
   message?: string
 }
@@ -224,3 +254,11 @@ export const createProject = (payload: CreateProjectRequest, signal?: AbortSigna
     },
     body: JSON.stringify(payload),
   })
+
+export const deleteProject = (projectId: string, signal?: AbortSignal) =>
+  requestJson<ProjectRecord>(`/v1/projects/${encodeURIComponent(projectId)}`, signal, {
+    method: 'DELETE',
+  })
+
+export const fetchProjectVerification = (projectId: string, signal?: AbortSignal) =>
+  requestJson<ProjectVerificationResponse>(`/v1/projects/${encodeURIComponent(projectId)}/verification`, signal)

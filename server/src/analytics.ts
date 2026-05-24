@@ -93,6 +93,8 @@ const summarizeBreakdown = (counts: Map<string, number>, total: number, limit = 
     .slice(0, limit)
 
 const toRecentEventRow = (event: StoredPulseEvent): RecentEventRow => ({
+  eventId: event.eventId,
+  receivedAt: event.receivedAt,
   occurredAt: event.occurredAt,
   eventName: event.eventName,
   projectId: event.projectId,
@@ -100,6 +102,8 @@ const toRecentEventRow = (event: StoredPulseEvent): RecentEventRow => ({
   deviceType: event.context?.deviceType || 'unknown',
   browserName: event.context?.browserName || 'Unknown',
   countryCode: event.context?.countryCode || 'XX',
+  consentState: event.consent.state,
+  consentMode: event.consent.mode,
 })
 
 const groupSessions = (events: StoredPulseEvent[]) => {

@@ -11,7 +11,7 @@ const buildJsonHeaders = (corsOrigin: string) =>
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'access-control-allow-origin': corsOrigin,
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
     'access-control-allow-headers': 'authorization,content-type',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'same-origin',
@@ -113,6 +113,62 @@ const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,47}$/
 
 const readTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
+const readOptionalString = (value: unknown) => {
+  const trimmed = readTrimmedString(value)
+  return trimmed || null
+}
+
+const readNestedOptionalString = (value: unknown, path: string[]) => {
+  let current = value
+
+  for (const segment of path) {
+    if (!current || typeof current !== 'object' || !(segment in current)) {
+      return null
+    }
+
+    current = (current as Record<string, unknown>)[segment]
+  }
+
+  return readOptionalString(current)
+}
+
+const buildRejectionRecord = (
+  candidate: unknown,
+  index: number,
+  receivedAt: string,
+  result: {
+    reason: string
+    field?: string
+  },
+  projectOwnership: Map<string, { ownerAccountId: string }>,
+) => {
+  const projectId = readNestedOptionalString(candidate, ['projectId'])
+  const project = projectId ? projectOwnership.get(projectId) : null
+  const occurredAt = readNestedOptionalString(candidate, ['occurredAt'])
+  const occurredAtMs = occurredAt ? Date.parse(occurredAt) : Number.NaN
+
+  return {
+    accountId: project?.ownerAccountId || '',
+    receivedAt,
+    receivedAtMs: Date.parse(receivedAt),
+    eventId: readNestedOptionalString(candidate, ['eventId']),
+    eventName: readNestedOptionalString(candidate, ['eventName']),
+    projectId,
+    occurredAt,
+    occurredAtMs: Number.isFinite(occurredAtMs) ? occurredAtMs : null,
+    path: readNestedOptionalString(candidate, ['page', 'path']),
+    deviceType: readNestedOptionalString(candidate, ['context', 'deviceType']),
+    browserName: readNestedOptionalString(candidate, ['context', 'browserName']),
+    countryCode: readNestedOptionalString(candidate, ['context', 'countryCode']),
+    consentState: readNestedOptionalString(candidate, ['consent', 'state']),
+    consentMode: readNestedOptionalString(candidate, ['consent', 'mode']),
+    reason: result.reason,
+    field: result.field || null,
+    requestIndex: index,
+    payloadJson: JSON.stringify(candidate),
+  }
+}
+
 const normalizeProjectHost = (value: string, fallbackProjectId: string) => {
   if (!value) {
     return fallbackProjectId
@@ -213,6 +269,7 @@ export const createPulseServer = (
         enforceRateLimit(requestBuckets, request, config)
         const body = await readJsonBody(request, config.maxBodyBytes)
         const events = Array.isArray(body.events) ? body.events : null
+        const receivedAt = new Date().toISOString()
 
         if (!events) {
           throw badRequest('Body must be a JSON object with an events array.')
@@ -226,14 +283,22 @@ export const createPulseServer = (
           throw badRequest(`events array exceeds max batch size of ${config.maxBatchSize}.`)
         }
 
-        const candidateAcceptedEvents: StoredPulseEvent[] = []
+        const candidateProjectIds = Array.from(
+          new Set(
+            events
+              .map((candidate) => readNestedOptionalString(candidate, ['projectId']))
+              .filter((projectId): projectId is string => Boolean(projectId)),
+          ),
+        )
+        const projectOwnership = await store.getProjectOwnershipMap(candidateProjectIds)
         const preliminaryResults = events.map((candidate, index) => {
           const result = validateEvent(candidate, config)
 
           if (result.ok) {
-            candidateAcceptedEvents.push(result.event)
             return {
               index,
+              candidate,
+              event: result.event,
               status: 'accepted' as const,
               eventId: result.event.eventId,
               warnings: result.warnings,
@@ -242,26 +307,25 @@ export const createPulseServer = (
 
           return {
             index,
+            candidate,
             status: 'rejected' as const,
             reason: result.reason,
             ...(result.field ? { field: result.field } : {}),
           }
         })
 
-        const projectOwnership = await store.getProjectOwnershipMap(
-          Array.from(new Set(candidateAcceptedEvents.map((event) => event.projectId))),
-        )
         const ownedEvents = preliminaryResults.map((item) => {
           if (item.status === 'rejected') {
             return item
           }
 
-          const matchedEvent = candidateAcceptedEvents.find((event) => event.eventId === item.eventId)
+          const matchedEvent = item.event
           const project = matchedEvent ? projectOwnership.get(matchedEvent.projectId) : null
 
           if (!matchedEvent || !project) {
             return {
               index: item.index,
+              candidate: item.candidate,
               status: 'rejected' as const,
               reason: `Unknown project: ${matchedEvent?.projectId || 'missing'}.`,
               field: 'projectId',
@@ -315,20 +379,53 @@ export const createPulseServer = (
           const failure = duplicateFailures.get(item.eventId)
           return {
             index: item.index,
+            candidate: item.candidate,
             status: 'rejected' as const,
             reason: failure?.reason || 'event rejected during duplicate check',
             ...(failure?.field ? { field: failure.field } : {}),
           }
         })
 
+        const responseResults = results.map((item) =>
+          item.status === 'accepted'
+            ? {
+                index: item.index,
+                status: 'accepted' as const,
+                eventId: item.eventId,
+                warnings: item.warnings,
+              }
+            : {
+                index: item.index,
+                status: 'rejected' as const,
+                reason: item.reason,
+                ...('field' in item && item.field ? { field: item.field } : {}),
+              },
+        )
+
+        const rejectionRecords = results
+          .filter((item) => item.status === 'rejected')
+          .map((item) =>
+            buildRejectionRecord(
+              item.candidate,
+              item.index,
+              receivedAt,
+              {
+                reason: item.reason,
+                ...('field' in item && item.field ? { field: item.field } : {}),
+              },
+              projectOwnership,
+            ),
+          )
+
+        await store.logRejections(rejectionRecords)
         await store.append(acceptedEvents)
 
         send(response, config.corsOrigin, acceptedEvents.length > 0 ? 202 : 400, {
-          receivedAt: new Date().toISOString(),
-          received: results.length,
+          receivedAt,
+          received: responseResults.length,
           accepted: acceptedEvents.length,
-          rejected: results.length - acceptedEvents.length,
-          results,
+          rejected: responseResults.length - acceptedEvents.length,
+          results: responseResults,
         })
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected collector error.')
@@ -383,6 +480,37 @@ export const createPulseServer = (
         send(response, config.corsOrigin, 201, project)
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected project creation error.')
+      }
+      return
+    }
+
+    const projectVerificationMatch = url.pathname.match(/^\/v1\/projects\/([^/]+)\/verification$/)
+    if (method === 'GET' && projectVerificationMatch) {
+      try {
+        const projectId = decodeURIComponent(projectVerificationMatch[1] || '')
+        const verification = await store.getProjectVerification(account!.accountId, projectId)
+        if (!verification) {
+          throw notFound(`Unknown project: ${projectId || 'missing'}.`)
+        }
+
+        send(response, config.corsOrigin, 200, verification)
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected project verification error.')
+      }
+      return
+    }
+
+    const projectDeleteMatch = url.pathname.match(/^\/v1\/projects\/([^/]+)$/)
+    if (method === 'DELETE' && projectDeleteMatch) {
+      try {
+        const projectId = decodeURIComponent(projectDeleteMatch[1] || '')
+        const project = await store.deleteProjectForAccount(account!.accountId, projectId)
+        if (!project) {
+          throw notFound(`Unknown project: ${projectId || 'missing'}.`)
+        }
+        send(response, config.corsOrigin, 200, project)
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected project deletion error.')
       }
       return
     }
@@ -526,6 +654,53 @@ export const createPulseServer = (
         )
       } catch (error) {
         sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+      }
+      return
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/analytics/events/rejected') {
+      try {
+        const projectId = url.searchParams.get('projectId') || undefined
+        if (projectId) {
+          const project = await store.getProjectRecordForAccount(account!.accountId, projectId)
+          if (!project) {
+            throw notFound(`Unknown project: ${projectId}.`)
+          }
+        }
+
+        send(
+          response,
+          config.corsOrigin,
+          200,
+          await store.getRejectedEventsPage(account!.accountId, {
+            fromRaw: url.searchParams.get('from'),
+            toRaw: url.searchParams.get('to'),
+            granularityRaw: url.searchParams.get('granularity'),
+            limitRaw: url.searchParams.get('limit'),
+            cursorRaw: url.searchParams.get('cursor'),
+            ...(projectId ? { projectId } : {}),
+            ...(url.searchParams.get('eventName') ? { eventName: url.searchParams.get('eventName') || undefined } : {}),
+            ...(url.searchParams.get('pathPrefix') ? { pathPrefix: url.searchParams.get('pathPrefix') || undefined } : {}),
+          }),
+        )
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected rejected event debug error.')
+      }
+      return
+    }
+
+    const eventDetailMatch = url.pathname.match(/^\/v1\/analytics\/events\/([^/]+)$/)
+    if (method === 'GET' && eventDetailMatch) {
+      try {
+        const eventId = decodeURIComponent(eventDetailMatch[1] || '')
+        const detail = await store.getEventDebugDetail(account!.accountId, eventId)
+        if (!detail) {
+          throw notFound(`Unknown event: ${eventId || 'missing'}.`)
+        }
+
+        send(response, config.corsOrigin, 200, detail)
+      } catch (error) {
+        sendError(response, config.corsOrigin, error, 'Unexpected event detail error.')
       }
       return
     }

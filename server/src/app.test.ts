@@ -361,6 +361,98 @@ test('projects and analytics stay scoped to the owning account', async () => {
   }
 })
 
+test('owners can delete projects and their analytics while other accounts cannot', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const config = createConfig(dir)
+  config.allowedProjectIds = new Set()
+  const { server, baseUrl } = await startServer(config)
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/v1/projects`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders('test-user-1'),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Delete Me',
+        domain: 'https://delete.example.com',
+        projectId: 'delete-me',
+        integrationPreset: 'website',
+      }),
+    })
+    assert.equal(createResponse.status, 201)
+
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'delete_project_event_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'delete-me',
+            page: { path: '/delete-me' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'sess_delete_project_0001', visitorKey: 'visitor_delete_project_0001' },
+          },
+        ],
+      }),
+    })
+    assert.equal(collectResponse.status, 202)
+
+    const forbiddenDeleteResponse = await fetch(`${baseUrl}/v1/projects/delete-me`, {
+      method: 'DELETE',
+      headers: authHeaders('test-user-2'),
+    })
+    assert.equal(forbiddenDeleteResponse.status, 404)
+
+    const deleteResponse = await fetch(`${baseUrl}/v1/projects/delete-me`, {
+      method: 'DELETE',
+      headers: authHeaders('test-user-1'),
+    })
+    assert.equal(deleteResponse.status, 200)
+
+    const workspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
+      headers: authHeaders('test-user-1'),
+    })
+    assert.equal(workspaceResponse.status, 200)
+    const workspace = (await workspaceResponse.json()) as {
+      projects: Array<{ projectId: string }>
+    }
+    assert.equal(workspace.projects.length, 0)
+
+    const overviewResponse = await fetch(
+      `${baseUrl}/v1/analytics/projects/delete-me/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      {
+        headers: authHeaders('test-user-1'),
+      },
+    )
+    assert.equal(overviewResponse.status, 404)
+
+    const recollectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'delete_project_event_0002',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:05:00.000Z',
+            projectId: 'delete-me',
+            page: { path: '/delete-me' },
+            consent: { state: 'granted', mode: 'standard' },
+          },
+        ],
+      }),
+    })
+    assert.equal(recollectResponse.status, 400)
+  } finally {
+    await stopServer(server)
+  }
+})
+
 test('collector stores sanitized paths and recent events expose the normalized value', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
   const { server, baseUrl } = await startServer(createConfig(dir))
@@ -540,6 +632,100 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
     assert.equal(filtered.rows[0]?.path, '/docs/api')
     assert.equal(filtered.rows[0]?.countryCode, 'DE')
     assert.equal(filtered.rows[0]?.deviceType, 'mobile')
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('project verification and event debug endpoints expose accepted payloads plus rejection reasons', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(createConfig(dir))
+
+  try {
+    await bootstrapWorkspace(baseUrl)
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'event_verify_accepted_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T09:59:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/install' },
+            consent: { state: 'granted', mode: 'standard' },
+            context: { deviceType: 'desktop', browserName: 'Firefox', countryCode: 'SE' },
+            identity: { sessionId: 'sess_verify_0001', visitorKey: 'visitor_verify_0001' },
+          },
+          {
+            eventId: 'event_verify_rejected_0001',
+            eventName: 'button_click',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/install' },
+            consent: { state: 'denied', mode: 'standard' },
+            context: { deviceType: 'desktop', browserName: 'Firefox', countryCode: 'SE' },
+            identity: { sessionId: 'sess_verify_0002', visitorKey: 'visitor_verify_0002' },
+          },
+        ],
+      }),
+    })
+    assert.equal(collectResponse.status, 202)
+
+    const verificationResponse = await fetch(`${baseUrl}/v1/projects/aegis/verification`, {
+      headers: authHeaders(),
+    })
+    assert.equal(verificationResponse.status, 200)
+    const verification = (await verificationResponse.json()) as {
+      summary: {
+        scriptInstalled: boolean
+        projectIdValid: boolean
+        lastPageViewAt: string | null
+        latestConsentState: string | null
+      }
+      recentAcceptedEvents: Array<{ eventId: string }>
+      recentRejectedEvents: Array<{ reason: string }>
+    }
+    assert.equal(verification.summary.scriptInstalled, true)
+    assert.equal(verification.summary.projectIdValid, true)
+    assert.equal(verification.summary.latestConsentState, 'denied')
+    assert.ok(verification.summary.lastPageViewAt)
+    assert.equal(verification.recentAcceptedEvents[0]?.eventId, 'event_verify_accepted_0001')
+    assert.match(verification.recentRejectedEvents[0]?.reason || '', /consent/i)
+
+    const acceptedEventsResponse = await fetch(
+      `${baseUrl}/v1/analytics/events/recent?projectId=aegis&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(acceptedEventsResponse.status, 200)
+    const acceptedEvents = (await acceptedEventsResponse.json()) as {
+      rows: Array<{ eventId: string; consentState: string; receivedAt: string }>
+    }
+    assert.equal(acceptedEvents.rows[0]?.eventId, 'event_verify_accepted_0001')
+    assert.equal(acceptedEvents.rows[0]?.consentState, 'granted')
+    assert.ok(acceptedEvents.rows[0]?.receivedAt)
+
+    const acceptedDetailResponse = await fetch(`${baseUrl}/v1/analytics/events/event_verify_accepted_0001`, {
+      headers: authHeaders(),
+    })
+    assert.equal(acceptedDetailResponse.status, 200)
+    const acceptedDetail = (await acceptedDetailResponse.json()) as {
+      payload: { eventId: string; page: { path: string } }
+    }
+    assert.equal(acceptedDetail.payload.eventId, 'event_verify_accepted_0001')
+    assert.equal(acceptedDetail.payload.page.path, '/install')
+
+    const rejectedEventsResponse = await fetch(
+      `${baseUrl}/v1/analytics/events/rejected?projectId=aegis&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(rejectedEventsResponse.status, 200)
+    const rejectedEvents = (await rejectedEventsResponse.json()) as {
+      rows: Array<{ reason: string; payload: { projectId: string } }>
+    }
+    assert.match(rejectedEvents.rows[0]?.reason || '', /consent/i)
+    assert.equal(rejectedEvents.rows[0]?.payload.projectId, 'aegis')
   } finally {
     await stopServer(server)
   }
