@@ -1,7 +1,7 @@
 {
   "name": "Continental Pulse",
   "short_name": "Pulse",
-  "description": "Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across Continental websites and apps.",
+  "description": "Pulse is a privacy-friendly analytics workspace for tracking traffic and usage across websites and web apps.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

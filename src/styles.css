@@ -355,6 +355,12 @@ kbd {
   gap: 12px;
 }
 
+.landing-account-access {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
 .landing-header-actions .text-link-button,
 .landing-header-actions .primary-button {
   min-height: 32px;
@@ -377,6 +383,18 @@ kbd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.account-infra-note,
+.action-support-note {
+  color: var(--muted);
+  font-size: 0.69rem;
+  line-height: 1.45;
+}
+
+.account-infra-note {
+  padding-right: 2px;
+  text-align: right;
 }
 
 .landing-header-actions .primary-button.gold {
@@ -654,6 +672,10 @@ kbd {
   color: var(--muted-strong);
   font-size: 0.82rem;
   line-height: 1.6;
+}
+
+.action-support-note {
+  max-width: 30rem;
 }
 
 .hero-actions .primary-button,
@@ -2902,6 +2924,17 @@ tbody td {
   gap: 18px;
 }
 
+.setup-advanced-card {
+  display: grid;
+  gap: 14px;
+}
+
+.setup-advanced-copy,
+.setup-framework-panel p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .setup-step-list {
   display: grid;
   gap: 12px;
@@ -3006,6 +3039,69 @@ tbody td {
 
 .setup-chip-row .status-chip {
   min-height: 30px;
+}
+
+.setup-framework-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.setup-framework-tab {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.028);
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.setup-framework-tab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(170, 189, 217, 0.28);
+}
+
+.setup-framework-tab.active {
+  border-color: rgba(53, 135, 255, 0.34);
+  background: rgba(53, 135, 255, 0.12);
+  color: var(--text);
+}
+
+.setup-framework-panel {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.setup-framework-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setup-framework-meta span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.setup-framework-meta strong {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .setup-snippet-card {
@@ -3269,6 +3365,7 @@ tbody td {
   .resource-card-grid,
   .setup-field-grid,
   .setup-preview-meta,
+  .setup-framework-meta,
   .verification-summary-grid,
   .verification-recommendation-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3346,7 +3443,8 @@ tbody td {
   .docs-right-rail,
   .docs-hero-stat-grid,
   .docs-library-grid,
-  .setup-option-group {
+  .setup-option-group,
+  .setup-framework-meta {
     grid-template-columns: 1fr;
   }
 
@@ -3406,6 +3504,10 @@ tbody td {
   .page-intro-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .landing-account-access {
+    justify-items: start;
   }
 
   .toolbar-account {
@@ -3532,7 +3634,8 @@ tbody td {
   .page-intro-actions .primary-button,
   .page-intro-actions .secondary-button,
   .setup-output-hero .primary-button,
-  .setup-snippet-card-head .secondary-button {
+  .setup-snippet-card-head .secondary-button,
+  .setup-framework-tab {
     width: 100%;
   }
 

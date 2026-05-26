@@ -36,9 +36,12 @@ export function MarketingChrome({
             {isAuthenticated ? (
               <span className="auth-session-chip">{user?.displayName || user?.email}</span>
             ) : (
-              <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
-                Log In
-              </button>
+              <div className="landing-account-access">
+                <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
+                  Sign in
+                </button>
+                <span className="account-infra-note">Uses Continental ID for shared account access</span>
+              </div>
             )}
             <Link to="/dashboard" className="primary-button gold">
               {isAuthenticated ? 'Open Pulse' : 'View Dashboard'}

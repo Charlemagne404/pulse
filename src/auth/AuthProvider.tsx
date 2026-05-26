@@ -9,12 +9,16 @@ import {
   getUserInitials,
   isTrustedContinentalMessageOrigin,
   logoutContinentalSession,
+  parseStoredContinentalAuthResult,
+  publishContinentalAuthResult,
+  readContinentalAuthResultFromLocation,
+  readContinentalAuthResultStorageKey,
   rememberContinentalApiBaseUrl,
   refreshContinentalSession,
   stripContinentalAuthParams,
 } from '../lib/continentalId'
 import type { AuthStatus } from './authContext'
-import type { ContinentalIdUser } from '../lib/continentalId'
+import type { ContinentalAuthResultPayload, ContinentalIdUser } from '../lib/continentalId'
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
@@ -50,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState('')
   const accessTokenRef = useRef('')
   const popupWindowRef = useRef<Window | null>(null)
+  const popupMonitorTimerRef = useRef<number | null>(null)
   const refreshTaskRef = useRef<Promise<boolean> | null>(null)
   const statusRef = useRef<AuthStatus>('loading')
 
@@ -58,11 +63,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [status])
 
   const closePopup = () => {
+    if (popupMonitorTimerRef.current !== null) {
+      window.clearInterval(popupMonitorTimerRef.current)
+      popupMonitorTimerRef.current = null
+    }
+
     if (popupWindowRef.current && !popupWindowRef.current.closed) {
       popupWindowRef.current.close()
     }
 
     popupWindowRef.current = null
+  }
+
+  const monitorPopup = () => {
+    if (popupMonitorTimerRef.current !== null) {
+      window.clearInterval(popupMonitorTimerRef.current)
+    }
+
+    popupMonitorTimerRef.current = window.setInterval(() => {
+      const popup = popupWindowRef.current
+      if (!popup) {
+        if (popupMonitorTimerRef.current !== null) {
+          window.clearInterval(popupMonitorTimerRef.current)
+          popupMonitorTimerRef.current = null
+        }
+        return
+      }
+
+      if (!popup.closed) {
+        return
+      }
+
+      popupWindowRef.current = null
+      if (popupMonitorTimerRef.current !== null) {
+        window.clearInterval(popupMonitorTimerRef.current)
+        popupMonitorTimerRef.current = null
+      }
+
+      if (statusRef.current !== 'authenticated') {
+        void refreshSession()
+      }
+    }, 500)
   }
 
   const setSignedOut = (message = '') => {
@@ -97,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         const message = describeContinentalError(
           error,
-          'Could not reach the Continental ID service from Pulse.'
+          'Could not reach the shared Continental account service from Pulse.'
         )
 
         if (statusRef.current === 'authenticated') {
@@ -124,8 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const popup = openCenteredPopup(buildContinentalLoginUrl(redirectTo), popupWindowRef.current)
     if (popup) {
       popupWindowRef.current = popup
+      monitorPopup()
       if (statusRef.current !== 'authenticated') {
-        setErrorMessage('Finish signing in with Continental ID in the popup window.')
+        setErrorMessage('Finish signing in in the popup window. Pulse uses Continental ID for shared account access.')
       }
       return
     }
@@ -146,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshSessionEvent = useEffectEvent(async () => refreshSession())
   const completePopupLoginEvent = useEffectEvent(
-    async (payload: { accessToken?: unknown; token?: unknown; apiBaseUrl?: unknown }) => {
+    async (payload: ContinentalAuthResultPayload) => {
       const accessToken =
         typeof payload.accessToken === 'string'
           ? payload.accessToken
@@ -180,7 +222,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
+    const locationPayload = readContinentalAuthResultFromLocation()
     stripContinentalAuthParams()
+
+    if (locationPayload) {
+      publishContinentalAuthResult(locationPayload)
+      const timerId = window.setTimeout(() => {
+        void completePopupLoginEvent(locationPayload)
+      }, 0)
+      return () => window.clearTimeout(timerId)
+    }
+
     void refreshSessionEvent()
   }, [])
 
@@ -199,6 +251,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== readContinentalAuthResultStorageKey()) {
+        return
+      }
+
+      const payload = parseStoredContinentalAuthResult(event.newValue)
+      if (!payload) {
+        return
+      }
+
+      void completePopupLoginEvent(payload)
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
   useEffect(() => {

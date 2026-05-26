@@ -77,6 +77,7 @@ export function ProductShell({ activeItem, pageTitle, toolbar, header, children 
                 <div className="avatar-pill">{userInitials}</div>
                 <div className="toolbar-account-copy">
                   <strong>{accountLabel}</strong>
+                  <span>Signed in via Continental ID</span>
                 </div>
                 <button type="button" className="text-link-button toolbar-signout-button" onClick={() => void signOut()}>
                   Sign out

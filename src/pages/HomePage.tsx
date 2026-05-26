@@ -81,9 +81,12 @@ export function HomePage() {
             {isAuthenticated ? (
               <span className="auth-session-chip">{user?.displayName || user?.email}</span>
             ) : (
-              <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
-                Continue with Continental ID
-              </button>
+              <div className="landing-account-access">
+                <button type="button" className="text-link-button" onClick={() => signIn(window.location.href)}>
+                  Sign in
+                </button>
+                <span className="account-infra-note">Uses Continental ID for shared account access</span>
+              </div>
             )}
             <Link to="/dashboard" className="primary-button gold">
               {isAuthenticated ? 'Open Pulse' : 'View Dashboard'}
@@ -109,13 +112,16 @@ export function HomePage() {
                 </Link>
               ) : (
                 <button type="button" className="primary-button gold" onClick={() => signIn(`${window.location.origin}/dashboard`)}>
-                  Continue with Continental ID
+                  Sign in
                 </button>
               )}
               <Link to="/docs" className="secondary-button">
                 Read Docs
               </Link>
             </div>
+            <p className="action-support-note">
+              Account access runs through Continental ID. Project setup, tracking, and reporting stay inside Pulse.
+            </p>
           </div>
 
           <div className="landing-visual">

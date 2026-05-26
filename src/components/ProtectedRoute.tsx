@@ -45,9 +45,9 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   if (status === 'loading') {
     return (
       <AuthShell
-        eyebrow="Continental ID"
-        title="Checking your Continental ID session"
-        message="Pulse is confirming whether this browser already has an active Continental ID session."
+        eyebrow="Account Access"
+        title="Checking your account session"
+        message="Pulse is confirming whether this browser already has an active account session through Continental ID."
         detail="If you just signed in, this should only take a moment."
       />
     )
@@ -60,16 +60,19 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   return (
     <AuthShell
       eyebrow="Secure Workspace"
-      title="Sign in with Continental ID to open Pulse"
-      message="Pulse uses Continental ID for account access, session recovery, and connected provider sign-in."
-      detail={errorMessage || 'Use the popup flow first. If your browser blocks popups, open the full login page instead.'}
+      title="Sign in to open Pulse"
+      message="Pulse uses Continental ID as the shared Continental account system for sign-in and session recovery."
+      detail={
+        errorMessage ||
+        'Your projects, setup flow, and analytics stay inside Pulse. Use the popup flow first. If your browser blocks popups, open the full sign-in page instead.'
+      }
       actions={
         <>
           <button type="button" className="primary-button gold" onClick={() => signIn(redirectTo)}>
-            Continue with Continental ID
+            Sign in
           </button>
           <button type="button" className="secondary-button" onClick={() => signInFullPage(redirectTo)}>
-            Open Full-Page Login
+            Open Full-Page Sign-In
           </button>
         </>
       }

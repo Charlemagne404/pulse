@@ -10,6 +10,13 @@ export interface ContinentalIdUser {
   }
 }
 
+export interface ContinentalAuthResultPayload {
+  type?: string
+  accessToken?: string
+  token?: string
+  apiBaseUrl?: string
+}
+
 interface RuntimeWindow extends Window {
   __API_BASE_URL__?: string
   __LOGIN_POPUP_URL__?: string
@@ -34,6 +41,8 @@ const TRUSTED_API_ORIGINS = new Set([
 const DEFAULT_LOGIN_POPUP_URL = 'https://login.continental-hub.com/popup.html'
 const HOSTED_API_BASE_URL = 'https://auth.continental-hub.com'
 const API_BASE_STORAGE_KEY = 'pulse.continentalId.apiBaseUrl'
+const AUTH_RESULT_STORAGE_KEY = 'pulse.continentalId.authResult'
+const AUTH_RESULT_MARKER_KEY = 'continentalAuth'
 const REQUEST_TIMEOUT_MS = 8000
 
 let resolvedApiBaseUrl = ''
@@ -45,6 +54,11 @@ const getRuntimeWindow = () => window as RuntimeWindow
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '')
 
 const safeText = (value: unknown) => String(value ?? '').trim()
+
+const getHashParams = () => {
+  const hash = window.location.hash.replace(/^#/, '')
+  return hash.includes('=') ? new URLSearchParams(hash) : null
+}
 
 const isLocalOrigin = (origin: string) => {
   try {
@@ -100,6 +114,84 @@ export const rememberContinentalApiBaseUrl = (value: string) => {
   apiBaseResolutionPromise = null
   rememberApiBaseUrl(resolved)
   return resolved
+}
+
+const readAuthResultPayload = (params: URLSearchParams) => {
+  const accessToken = safeText(params.get('accessToken') || params.get('token'))
+  const apiBaseUrl = safeText(params.get('apiBaseUrl'))
+  const hasMarker = safeText(params.get(AUTH_RESULT_MARKER_KEY)) === '1'
+
+  if (!hasMarker && !accessToken && !apiBaseUrl) {
+    return null
+  }
+
+  return {
+    type: 'LOGIN_SUCCESS',
+    accessToken,
+    token: accessToken,
+    apiBaseUrl,
+  } satisfies ContinentalAuthResultPayload
+}
+
+export const readContinentalAuthResultFromLocation = () => {
+  const searchPayload = readAuthResultPayload(new URLSearchParams(window.location.search))
+  if (searchPayload) {
+    return searchPayload
+  }
+
+  const hashParams = getHashParams()
+  return hashParams ? readAuthResultPayload(hashParams) : null
+}
+
+export const readContinentalAuthResultStorageKey = () => AUTH_RESULT_STORAGE_KEY
+
+export const publishContinentalAuthResult = (payload: ContinentalAuthResultPayload) => {
+  const accessToken = safeText(payload.accessToken || payload.token)
+  const apiBaseUrl = safeText(payload.apiBaseUrl)
+
+  if (!accessToken && !apiBaseUrl) {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      AUTH_RESULT_STORAGE_KEY,
+      JSON.stringify({
+        type: 'LOGIN_SUCCESS',
+        accessToken,
+        token: accessToken,
+        apiBaseUrl,
+        emittedAt: Date.now(),
+      })
+    )
+  } catch {
+    // Ignore storage failures in restricted browser contexts.
+  }
+}
+
+export const parseStoredContinentalAuthResult = (value: string | null) => {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as ContinentalAuthResultPayload
+    const accessToken = safeText(parsed.accessToken || parsed.token)
+    const apiBaseUrl = safeText(parsed.apiBaseUrl)
+
+    if (!accessToken && !apiBaseUrl) {
+      return null
+    }
+
+    return {
+      type: 'LOGIN_SUCCESS',
+      accessToken,
+      token: accessToken,
+      apiBaseUrl,
+    } satisfies ContinentalAuthResultPayload
+  } catch {
+    return null
+  }
 }
 
 const getApiBaseCandidates = () => {
@@ -329,22 +421,39 @@ export const logoutContinentalSession = async () => {
 
 export const stripContinentalAuthParams = () => {
   const params = new URLSearchParams(window.location.search)
-  const trackedParams = ['apiBaseUrl', 'token', 'userId', 'continentalId', 'email', 'username']
-  let changed = false
+  const hashParams = getHashParams()
+  const trackedParams = [
+    AUTH_RESULT_MARKER_KEY,
+    'accessToken',
+    'apiBaseUrl',
+    'token',
+    'userId',
+    'continentalId',
+    'email',
+    'username',
+  ]
+  let changedSearch = false
+  let changedHash = false
 
   for (const key of trackedParams) {
     if (params.has(key)) {
       params.delete(key)
-      changed = true
+      changedSearch = true
+    }
+
+    if (hashParams?.has(key)) {
+      hashParams.delete(key)
+      changedHash = true
     }
   }
 
-  if (!changed) {
+  if (!changedSearch && !changedHash) {
     return
   }
 
   const nextQuery = params.toString()
-  const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`
+  const nextHash = hashParams ? hashParams.toString() : window.location.hash.replace(/^#/, '')
+  const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${nextHash ? `#${nextHash}` : ''}`
   window.history.replaceState({}, '', nextUrl)
 }
 
