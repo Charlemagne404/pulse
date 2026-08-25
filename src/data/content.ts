@@ -260,10 +260,16 @@ export const docsSections: DocsSectionContent[] = [
       title: 'script tag',
       code: String.raw`<script
   defer
-  src="https://cdn.pulse.continental.com/pulse.js"
+  src="https://pulse.continental-hub.com/pulse.js"
   data-site="example.com"
-  data-collect="https://api.pulse.continental.com"
-></script>`,
+  data-project="example-site"
+  data-collect="https://pulse.continental-hub.com/v1/collect"
+></script>
+<script>
+  window.pulse = window.pulse || [];
+  window.pulse.push(['init', { projectId: 'example-site', consentDefault: 'strict' }]);
+  window.pulse.push(['page']);
+</script>`,
     },
   },
   {
@@ -275,11 +281,8 @@ export const docsSections: DocsSectionContent[] = [
     ],
     code: {
       title: 'project config',
-      code: String.raw`window.pulse = window.pulse || [];
-
-pulse.init({
+      code: String.raw`pulse.init({
   projectId: 'marketing-site',
-  debug: false,
   consentDefault: 'strict',
 });`,
     },
@@ -376,10 +379,16 @@ pulse.track('file_download', { asset: 'product_sheet' });`,
       title: 'script configuration',
   code: String.raw`<script
   defer
-  src="https://cdn.pulse.continental.com/pulse.js"
+  src="https://pulse.continental-hub.com/pulse.js"
   data-site="marketing-site"
-  data-collect="https://api.pulse.continental.com"
-></script>`,
+  data-project="marketing-site"
+  data-collect="https://pulse.continental-hub.com/v1/collect"
+></script>
+<script>
+  window.pulse = window.pulse || [];
+  window.pulse.push(['init', { projectId: 'marketing-site', consentDefault: 'strict' }]);
+  window.pulse.push(['page']);
+</script>`,
     },
   },
   {

@@ -1,25 +1,43 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createContinentalAuthResolver, type AuthResolver } from './auth.js'
-import { badRequest, isHttpError, notFound, payloadTooLarge, tooManyRequests } from './errors.js'
+import { badRequest, forbidden, isHttpError, notFound, payloadTooLarge, tooManyRequests } from './errors.js'
 import { buildAlertsResponse, buildExportsResponse, buildWorkspaceSettingsResponse } from './operations.js'
 import { SqliteEventStore } from './store.js'
-import type { CollectorConfig, CreateProjectRequestBody, StoredPulseEvent } from './types.js'
+import type {
+  CollectorConfig,
+  CreateExportRequest,
+  CreateProjectRequestBody,
+  StoredPulseEvent,
+  WorkspaceRole,
+} from './types.js'
 import { validateEvent } from './validation.js'
 
-const buildJsonHeaders = (corsOrigin: string) =>
+const buildJsonHeaders = (corsOrigin: string | null) =>
   ({
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
-    'access-control-allow-origin': corsOrigin,
-    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers': 'authorization,content-type',
+    vary: 'Origin',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'same-origin',
+    ...(corsOrigin ? { 'access-control-allow-origin': corsOrigin } : {}),
   }) as const
+
+const resolveCorsOrigin = (request: IncomingMessage, config: CollectorConfig, isCollectorRequest = false) => {
+  const allowedOrigins = isCollectorRequest ? config.collectorCorsOrigins : config.corsOrigins
+  const fallbackOrigin = isCollectorRequest ? '*' : config.corsOrigin
+  const requestOrigin = request.headers.origin
+  if (!requestOrigin || allowedOrigins.has('*')) {
+    return allowedOrigins.has('*') ? '*' : fallbackOrigin
+  }
+
+  return allowedOrigins.has(requestOrigin) ? requestOrigin : null
+}
 
 const send = (
   response: ServerResponse<IncomingMessage>,
-  corsOrigin: string,
+  corsOrigin: string | null,
   statusCode: number,
   payload: unknown,
 ) => {
@@ -29,7 +47,7 @@ const send = (
 
 const sendError = (
   response: ServerResponse<IncomingMessage>,
-  corsOrigin: string,
+  corsOrigin: string | null,
   error: unknown,
   fallbackMessage: string,
 ) => {
@@ -45,6 +63,22 @@ const sendError = (
     error: 'internal_error',
     message: fallbackMessage,
   })
+}
+
+const sendArtifact = (
+  response: ServerResponse<IncomingMessage>,
+  corsOrigin: string | null,
+  artifact: { body: Buffer; fileName: string; contentType: string },
+) => {
+  response.writeHead(200, {
+    'content-type': artifact.contentType,
+    'cache-control': 'no-store',
+    'content-disposition': `attachment; filename="${artifact.fileName}"`,
+    'x-content-type-options': 'nosniff',
+    vary: 'Origin',
+    ...(corsOrigin ? { 'access-control-allow-origin': corsOrigin } : {}),
+  })
+  response.end(artifact.body)
 }
 
 const readJsonBody = async (request: IncomingMessage, maxBodyBytes: number) => {
@@ -209,6 +243,68 @@ const parseCreateProjectBody = (body: Record<string, unknown>) => {
   }
 }
 
+const parseCreateExportBody = (body: Record<string, unknown>): CreateExportRequest => {
+  const reportSlug = readTrimmedString(body.reportSlug)
+  const format = readTrimmedString(body.format)
+  const projectId = readOptionalString(body.projectId)
+  const from = readOptionalString(body.from)
+  const to = readOptionalString(body.to)
+  const granularity = readOptionalString(body.granularity)
+
+  if (reportSlug !== 'executive' && reportSlug !== 'pages' && reportSlug !== 'referrers') {
+    throw badRequest('reportSlug must be executive, pages, or referrers.')
+  }
+
+  if (format !== 'csv' && format !== 'pdf_summary') {
+    throw badRequest('format must be csv or pdf_summary.')
+  }
+
+  if (granularity && granularity !== 'day' && granularity !== 'week' && granularity !== 'month') {
+    throw badRequest('granularity must be day, week, or month.')
+  }
+
+  for (const [label, value] of [['from', from], ['to', to]] as const) {
+    if (value && Number.isNaN(Date.parse(value))) {
+      throw badRequest(`${label} must be a valid ISO timestamp.`)
+    }
+  }
+
+  const resolvedGranularity = granularity === 'day' || granularity === 'week' || granularity === 'month' ? granularity : undefined
+
+  return {
+    reportSlug,
+    format,
+    ...(projectId ? { projectId } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(resolvedGranularity ? { granularity: resolvedGranularity } : {}),
+  }
+}
+
+const parseWorkspaceMemberBody = (body: Record<string, unknown>) => {
+  const email = readTrimmedString(body.email).toLowerCase()
+  const displayName = readTrimmedString(body.displayName) || email
+  const role = readTrimmedString(body.role) as WorkspaceRole
+
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+    throw badRequest('email must be a valid workspace member email.')
+  }
+
+  if (role !== 'viewer' && role !== 'editor' && role !== 'owner') {
+    throw badRequest('role must be viewer, editor, or owner.')
+  }
+
+  return { email, displayName, role }
+}
+
+const parseMemberRoleBody = (body: Record<string, unknown>) => {
+  const role = readTrimmedString(body.role) as WorkspaceRole
+  if (role !== 'viewer' && role !== 'editor' && role !== 'owner') {
+    throw badRequest('role must be viewer, editor, or owner.')
+  }
+  return role
+}
+
 const applyDuplicateGuards = (acceptedEvents: StoredPulseEvent[], existingEventIds: Set<string>) => {
   const seenInRequest = new Set<string>()
 
@@ -248,18 +344,20 @@ export const createPulseServer = (
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET'
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
+    const isCollectorRequest = url.pathname === '/v1/collect'
+    const corsOrigin = resolveCorsOrigin(request, config, isCollectorRequest)
 
     if (method === 'OPTIONS') {
-      response.writeHead(204, buildJsonHeaders(config.corsOrigin))
+      response.writeHead(204, buildJsonHeaders(corsOrigin))
       response.end()
       return
     }
 
     if (method === 'GET' && url.pathname === '/api/health') {
       try {
-        send(response, config.corsOrigin, 200, await store.readHealthSnapshot())
+        send(response, corsOrigin, 200, await store.readHealthSnapshot())
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Health check failed.')
+        sendError(response, corsOrigin, error, 'Health check failed.')
       }
       return
     }
@@ -420,7 +518,7 @@ export const createPulseServer = (
         await store.logRejections(rejectionRecords)
         await store.append(acceptedEvents)
 
-        send(response, config.corsOrigin, acceptedEvents.length > 0 ? 202 : 400, {
+        send(response, corsOrigin, acceptedEvents.length > 0 ? 202 : 400, {
           receivedAt,
           received: responseResults.length,
           accepted: acceptedEvents.length,
@@ -428,7 +526,7 @@ export const createPulseServer = (
           results: responseResults,
         })
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected collector error.')
+        sendError(response, corsOrigin, error, 'Unexpected collector error.')
       }
       return
     }
@@ -441,45 +539,116 @@ export const createPulseServer = (
         account = await authResolver.authenticate(request)
         await store.bootstrapAccountProjects(account)
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Sign in with Continental ID to open Pulse.')
+        sendError(response, corsOrigin, error, 'Sign in with Continental ID to open Pulse.')
         return
+      }
+    }
+
+    const requireRole = async (minimumRole: WorkspaceRole) => {
+      if (!account || !(await store.hasMinimumRole(account.accountId, minimumRole))) {
+        throw forbidden(`This action requires ${minimumRole} workspace access.`)
       }
     }
 
     if (method === 'GET' && url.pathname === '/v1/alerts') {
       try {
-        send(response, config.corsOrigin, 200, await buildAlertsResponse(store, config, account!))
+        send(response, corsOrigin, 200, await buildAlertsResponse(store, config, account!))
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected alerts error.')
+        sendError(response, corsOrigin, error, 'Unexpected alerts error.')
       }
       return
     }
 
     if (method === 'GET' && url.pathname === '/v1/exports') {
       try {
-        send(response, config.corsOrigin, 200, await buildExportsResponse(store, config, account!))
+        send(response, corsOrigin, 200, await buildExportsResponse(store, config, account!))
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected export pipeline error.')
+        sendError(response, corsOrigin, error, 'Unexpected export pipeline error.')
+      }
+      return
+    }
+
+    if (method === 'POST' && url.pathname === '/v1/exports/manual') {
+      try {
+        await requireRole('editor')
+        const body = await readJsonBody(request, config.maxBodyBytes)
+        const run = await store.createManualExport(account!, parseCreateExportBody(body))
+        send(response, corsOrigin, 201, run)
+      } catch (error) {
+        sendError(response, corsOrigin, error, 'Unexpected manual export error.')
+      }
+      return
+    }
+
+    const exportDownloadMatch = url.pathname.match(/^\/v1\/exports\/runs\/([^/]+)\/download$/)
+    if (method === 'GET' && exportDownloadMatch) {
+      try {
+        const runId = decodeURIComponent(exportDownloadMatch[1] || '')
+        const artifact = await store.readExportArtifact(account!.accountId, runId)
+        if (!artifact) {
+          throw notFound(`Unknown export run: ${runId || 'missing'}.`)
+        }
+        sendArtifact(response, corsOrigin, artifact)
+      } catch (error) {
+        sendError(response, corsOrigin, error, 'Unexpected export download error.')
       }
       return
     }
 
     if (method === 'GET' && url.pathname === '/v1/workspace') {
       try {
-        send(response, config.corsOrigin, 200, await buildWorkspaceSettingsResponse(store, config, account!))
+        send(response, corsOrigin, 200, await buildWorkspaceSettingsResponse(store, config, account!))
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected workspace settings error.')
+        sendError(response, corsOrigin, error, 'Unexpected workspace settings error.')
+      }
+      return
+    }
+
+    if (method === 'POST' && url.pathname === '/v1/workspace/members') {
+      try {
+        await requireRole('owner')
+        const body = await readJsonBody(request, config.maxBodyBytes)
+        const member = await store.inviteWorkspaceMember(account!.accountId, parseWorkspaceMemberBody(body))
+        send(response, corsOrigin, 201, member)
+      } catch (error) {
+        sendError(response, corsOrigin, error, 'Unexpected workspace invitation error.')
+      }
+      return
+    }
+
+    const memberMatch = url.pathname.match(/^\/v1\/workspace\/members\/(\d+)$/)
+    if (memberMatch && (method === 'PATCH' || method === 'DELETE')) {
+      try {
+        await requireRole('owner')
+        const memberId = Number(memberMatch[1])
+        if (method === 'PATCH') {
+          const body = await readJsonBody(request, config.maxBodyBytes)
+          const member = await store.updateWorkspaceMemberRole(account!.accountId, memberId, parseMemberRoleBody(body))
+          if (!member) {
+            throw notFound(`Unknown workspace member: ${memberId}.`)
+          }
+          send(response, corsOrigin, 200, member)
+        } else {
+          const member = await store.removeWorkspaceMember(account!.accountId, memberId)
+          if (!member) {
+            throw notFound(`Unknown workspace member: ${memberId}.`)
+          }
+          send(response, corsOrigin, 200, member)
+        }
+      } catch (error) {
+        sendError(response, corsOrigin, error, 'Unexpected workspace member change.')
       }
       return
     }
 
     if (method === 'POST' && url.pathname === '/v1/projects') {
       try {
+        await requireRole('editor')
         const body = await readJsonBody(request, config.maxBodyBytes)
         const project = await store.createProject(account!, parseCreateProjectBody(body))
-        send(response, config.corsOrigin, 201, project)
+        send(response, corsOrigin, 201, project)
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected project creation error.')
+        sendError(response, corsOrigin, error, 'Unexpected project creation error.')
       }
       return
     }
@@ -493,9 +662,9 @@ export const createPulseServer = (
           throw notFound(`Unknown project: ${projectId || 'missing'}.`)
         }
 
-        send(response, config.corsOrigin, 200, verification)
+        send(response, corsOrigin, 200, verification)
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected project verification error.')
+        sendError(response, corsOrigin, error, 'Unexpected project verification error.')
       }
       return
     }
@@ -503,14 +672,15 @@ export const createPulseServer = (
     const projectDeleteMatch = url.pathname.match(/^\/v1\/projects\/([^/]+)$/)
     if (method === 'DELETE' && projectDeleteMatch) {
       try {
+        await requireRole('editor')
         const projectId = decodeURIComponent(projectDeleteMatch[1] || '')
         const project = await store.deleteProjectForAccount(account!.accountId, projectId)
         if (!project) {
           throw notFound(`Unknown project: ${projectId || 'missing'}.`)
         }
-        send(response, config.corsOrigin, 200, project)
+        send(response, corsOrigin, 200, project)
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected project deletion error.')
+        sendError(response, corsOrigin, error, 'Unexpected project deletion error.')
       }
       return
     }
@@ -519,7 +689,7 @@ export const createPulseServer = (
       try {
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getOverviewAnalytics(
             account!.accountId,
@@ -529,7 +699,7 @@ export const createPulseServer = (
           ),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+        sendError(response, corsOrigin, error, 'Unexpected analytics error.')
       }
       return
     }
@@ -544,7 +714,7 @@ export const createPulseServer = (
         }
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getProjectOverviewAnalytics(
             account!.accountId,
@@ -555,7 +725,7 @@ export const createPulseServer = (
           ),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+        sendError(response, corsOrigin, error, 'Unexpected analytics error.')
       }
       return
     }
@@ -572,7 +742,7 @@ export const createPulseServer = (
 
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getPagesReport(
             account!.accountId,
@@ -583,7 +753,7 @@ export const createPulseServer = (
           ),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+        sendError(response, corsOrigin, error, 'Unexpected analytics error.')
       }
       return
     }
@@ -600,7 +770,7 @@ export const createPulseServer = (
 
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getReferrersReport(
             account!.accountId,
@@ -611,7 +781,7 @@ export const createPulseServer = (
           ),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+        sendError(response, corsOrigin, error, 'Unexpected analytics error.')
       }
       return
     }
@@ -641,7 +811,7 @@ export const createPulseServer = (
 
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getRecentEventsPage(account!.accountId, {
             ...recentEventsQuery,
@@ -653,7 +823,7 @@ export const createPulseServer = (
           }),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected analytics error.')
+        sendError(response, corsOrigin, error, 'Unexpected analytics error.')
       }
       return
     }
@@ -670,7 +840,7 @@ export const createPulseServer = (
 
         send(
           response,
-          config.corsOrigin,
+          corsOrigin,
           200,
           await store.getRejectedEventsPage(account!.accountId, {
             fromRaw: url.searchParams.get('from'),
@@ -684,7 +854,7 @@ export const createPulseServer = (
           }),
         )
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected rejected event debug error.')
+        sendError(response, corsOrigin, error, 'Unexpected rejected event debug error.')
       }
       return
     }
@@ -698,14 +868,14 @@ export const createPulseServer = (
           throw notFound(`Unknown event: ${eventId || 'missing'}.`)
         }
 
-        send(response, config.corsOrigin, 200, detail)
+        send(response, corsOrigin, 200, detail)
       } catch (error) {
-        sendError(response, config.corsOrigin, error, 'Unexpected event detail error.')
+        sendError(response, corsOrigin, error, 'Unexpected event detail error.')
       }
       return
     }
 
-    send(response, config.corsOrigin, 404, {
+    send(response, corsOrigin, 404, {
       error: 'not_found',
       message: `No route for ${method} ${url.pathname}.`,
     })

@@ -10,6 +10,7 @@ Pulse is a privacy-first analytics product for the Continental ecosystem with a 
 - React Router
 - Node.js HTTP server
 - SQLite-backed event storage
+- Node.js 22.5+ (`node:sqlite`)
 
 ## Routes
 
@@ -37,13 +38,16 @@ npm run lint
 npm run build
 npm run build:server
 npm run test:server
+npm run test:sdk
+npm audit --omit=dev --audit-level=high
 ```
 
 ## Current State
 
 - Live analytics power the dashboard, projects, reports, events, alerts, and workspace settings surfaces.
-- `/v1/collect` accepts events into the local collector with duplicate protection, rate limiting, rollups, and retention enforcement.
-- `/v1/alerts`, `/v1/exports`, and `/v1/workspace` provide the production-oriented Phase 6 product surfaces.
+- `public/pulse.js` is the self-hosted browser SDK for `pulse.init`, `pulse.page`, `pulse.track`, and consent updates.
+- `/v1/collect` accepts events into the local collector with duplicate protection, rate limiting, rollups, retention enforcement, and public collector CORS.
+- `/v1/alerts`, `/v1/exports`, and `/v1/workspace` provide live product surfaces with persisted export artifacts and workspace membership enforcement.
 
 ## Deployment
 
@@ -61,11 +65,17 @@ The installer will:
 - build the Node analytics backend
 - sync the built files to `/var/www/pulse`
 - install and restart the `pulse-collector` systemd service
+- install daily SQLite backups and a five-minute collector health check timer
 - append the Caddy site block for `pulse.continental-hub.com` if it is missing
 - validate and reload Caddy
 
 The public site expects Caddy to reverse-proxy `/api/*` and `/v1/*` to the local collector on
-`127.0.0.1:8789`. Override backend settings with `/etc/pulse/pulse-collector.env`.
+`127.0.0.1:8789`. Override backend settings with `/etc/pulse/pulse-collector.env`. The installer
+stores the SQLite database and export artifacts under `/var/lib/pulse` and backups under
+`/var/backups/pulse`.
+
+See [deployment operations](/Users/charliearnerstal/Documents/GitHub/pulse/docs/OPERATIONS.md:1)
+for backup, restore, health, and rollout procedures.
 
 ## License
 

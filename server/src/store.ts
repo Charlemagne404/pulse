@@ -1,8 +1,10 @@
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { conflict } from './errors.js'
+import { buildCsvDocument, buildPdfSummaryDocument, type ExportSection } from './export.js'
 import { getProjectMetadata } from './projects.js'
 import type {
   AuthenticatedAccount,
@@ -11,7 +13,10 @@ import type {
   AnalyticsRange,
   ConsentSnapshot,
   CollectorConfig,
+  CreateExportRequest,
   EventDebugDetailResponse,
+  ExportRun,
+  ExportSchedule,
   ProjectRecord,
   ProjectVerificationCheck,
   ProjectVerificationResponse,
@@ -26,6 +31,8 @@ import type {
   ReferrersReportResponse,
   StoredPulseEvent,
   VerificationRecommendation,
+  WorkspaceMember,
+  WorkspaceRole,
 } from './types.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -107,7 +114,62 @@ interface RegisteredProjectRow {
   owner_account_id: string
   owner_email: string
   owner_display_name: string
+  workspace_id: string
 }
+
+interface WorkspaceAccess {
+  workspaceId: string
+  workspaceName: string
+  member: WorkspaceMember
+}
+
+interface WorkspaceMemberRow {
+  id: number
+  workspace_id: string
+  account_id: string | null
+  email: string
+  display_name: string
+  role: WorkspaceRole
+  status: 'active' | 'invited'
+  created_at: string
+  updated_at: string
+}
+
+interface ExportScheduleRow {
+  id: string
+  workspace_id: string
+  name: string
+  report_slug: 'executive' | 'pages' | 'referrers'
+  cadence: 'weekly' | 'monthly'
+  format: 'pdf_summary'
+  owner_account_id: string
+  owner_email: string
+  owner_display_name: string
+  recipients_json: string
+  last_run_at: string | null
+  next_run_at: string
+  status: 'ok' | 'delayed'
+  created_at: string
+  updated_at: string
+}
+
+interface ExportRunRow {
+  id: string
+  workspace_id: string
+  schedule_id: string
+  name: string
+  status: 'succeeded' | 'delayed' | 'pending' | 'failed'
+  format: 'pdf_summary' | 'csv'
+  scope_label: string
+  started_at: string
+  completed_at: string | null
+  row_count: number
+  detail: string
+  file_name: string | null
+  file_path: string | null
+}
+
+const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = { viewer: 1, editor: 2, owner: 3 }
 
 interface CollectorRejectionRecord {
   accountId: string
@@ -184,6 +246,16 @@ const startOfUtcWeek = (date: Date) => {
 }
 
 const startOfUtcMonth = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)
+
+const addDays = (date: Date, days: number) => new Date(date.getTime() + days * MS_PER_DAY)
+
+const nextMondayAtHourUtc = (date: Date, hour: number) => {
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7
+  const candidate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceMonday, hour))
+  return candidate.getTime() <= date.getTime() ? addDays(candidate, 7) : candidate
+}
+
+const nextMonthStartUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1))
 
 const bucketStart = (date: Date, granularity: AnalyticsGranularity) => {
   if (granularity === 'month') {
@@ -391,8 +463,10 @@ export class SqliteEventStore {
   private readonly db: DatabaseSync
   private readonly readyPromise: Promise<void>
   private maintenanceRunPromise: Promise<void> | null = null
+  private exportRunPromise: Promise<void> | null = null
   private lastRetentionRunAtMs = 0
   private readonly maintenanceTimer: NodeJS.Timeout
+  private readonly exportTimer: NodeJS.Timeout
 
   constructor(private readonly config: CollectorConfig) {
     mkdirSync(dirname(config.databasePath), { recursive: true })
@@ -402,11 +476,18 @@ export class SqliteEventStore {
       void this.runMaintenance()
     }, config.rollupIntervalMs)
     this.maintenanceTimer.unref?.()
+    this.exportTimer = setInterval(() => {
+      void this.runDueScheduledExports()
+    }, config.exportIntervalMs)
+    this.exportTimer.unref?.()
   }
 
   async close() {
     clearInterval(this.maintenanceTimer)
+    clearInterval(this.exportTimer)
     await this.readyPromise
+    await this.maintenanceRunPromise
+    await this.exportRunPromise
     this.db.close()
   }
 
@@ -431,53 +512,168 @@ export class SqliteEventStore {
     this.insertRejectionsSync(rejections)
   }
 
-  async bootstrapAccountProjects(account: AuthenticatedAccount) {
+  async bootstrapAccountProjects(account: AuthenticatedAccount): Promise<WorkspaceAccess> {
     await this.readyPromise
 
-    if (this.countRegisteredProjectsSync() > 0 || this.config.allowedProjectIds.size === 0) {
-      return
+    const access = this.ensureWorkspaceAccessSync(account)
+
+    if (this.countRegisteredProjectsSync() === 0 && this.config.allowedProjectIds.size > 0) {
+      this.db.exec('BEGIN IMMEDIATE')
+
+      try {
+        const insertProject = this.db.prepare(`
+          INSERT INTO registered_projects (
+            project_id,
+            project_name,
+            site_host,
+            integration_preset,
+            created_at,
+            owner_account_id,
+            owner_email,
+            owner_display_name,
+            workspace_id
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        const now = new Date().toISOString()
+
+        for (const projectId of Array.from(this.config.allowedProjectIds).sort()) {
+          const project = getProjectMetadata(projectId)
+          insertProject.run(
+            project.id,
+            project.name,
+            project.id,
+            'website',
+            now,
+            account.accountId,
+            account.email,
+            account.displayName,
+            access.workspaceId,
+          )
+        }
+
+        this.db.exec('COMMIT')
+      } catch (error) {
+        this.db.exec('ROLLBACK')
+        throw error
+      }
     }
 
-    this.db.exec('BEGIN IMMEDIATE')
+    this.backfillAccountOwnershipSync(access.workspaceId, Array.from(this.config.allowedProjectIds))
+    this.ensureDefaultExportSchedulesSync(access)
+    this.processDirtyBucketsSync()
+    return access
+  }
+
+  async getWorkspaceAccess(accountId: string): Promise<WorkspaceAccess | null> {
+    await this.readyPromise
+    return this.getWorkspaceAccessSync(accountId)
+  }
+
+  async listWorkspaceMembers(accountId: string): Promise<WorkspaceMember[]> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const rows = this.db
+      .prepare(`
+        SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at
+        FROM workspace_members
+        WHERE workspace_id = ?
+        ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, display_name COLLATE NOCASE ASC
+      `)
+      .all(workspaceId) as unknown as WorkspaceMemberRow[]
+
+    return rows.map((row) => this.toWorkspaceMember(row))
+  }
+
+  async inviteWorkspaceMember(
+    actorAccountId: string,
+    input: { email: string; displayName: string; role: WorkspaceRole },
+  ): Promise<WorkspaceMember> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(actorAccountId)
+    const now = new Date().toISOString()
 
     try {
-      const insertProject = this.db.prepare(`
-        INSERT INTO registered_projects (
-          project_id,
-          project_name,
-          site_host,
-          integration_preset,
-          created_at,
-          owner_account_id,
-          owner_email,
-          owner_display_name
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      const now = new Date().toISOString()
+      const result = this.db
+        .prepare(`
+          INSERT INTO workspace_members (workspace_id, account_id, email, display_name, role, status, created_at, updated_at)
+          VALUES (?, NULL, ?, ?, ?, 'invited', ?, ?)
+        `)
+        .run(workspaceId, input.email.toLowerCase(), input.displayName, input.role, now, now)
 
-      for (const projectId of Array.from(this.config.allowedProjectIds).sort()) {
-        const project = getProjectMetadata(projectId)
-        insertProject.run(
-          project.id,
-          project.name,
-          project.id,
-          'website',
-          now,
-          account.accountId,
-          account.email,
-          account.displayName,
-        )
+      return this.toWorkspaceMember(
+        this.db.prepare(`
+          SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at
+          FROM workspace_members WHERE id = ?
+        `).get(Number(result.lastInsertRowid)) as unknown as WorkspaceMemberRow,
+      )
+    } catch (error) {
+      if ((error as Error).message.includes('UNIQUE')) {
+        throw conflict(`A workspace member or invitation already exists for ${input.email}.`)
       }
 
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
       throw error
     }
+  }
 
-    this.backfillAccountOwnershipSync(account.accountId, Array.from(this.config.allowedProjectIds))
-    this.processDirtyBucketsSync()
+  async updateWorkspaceMemberRole(actorAccountId: string, memberId: number, role: WorkspaceRole): Promise<WorkspaceMember | null> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(actorAccountId)
+    const member = this.db
+      .prepare('SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at FROM workspace_members WHERE id = ? AND workspace_id = ?')
+      .get(memberId, workspaceId) as WorkspaceMemberRow | undefined
+
+    if (!member) {
+      return null
+    }
+
+    if (member.role === 'owner' && role !== 'owner') {
+      const ownerCount = this.db.prepare("SELECT COUNT(*) AS count FROM workspace_members WHERE workspace_id = ? AND role = 'owner' AND status = 'active'").get(workspaceId) as { count: number }
+      if (ownerCount.count <= 1) {
+        throw conflict('A workspace must always have at least one active owner.')
+      }
+    }
+
+    this.db.prepare('UPDATE workspace_members SET role = ?, updated_at = ? WHERE id = ? AND workspace_id = ?').run(role, new Date().toISOString(), memberId, workspaceId)
+    return this.toWorkspaceMember(
+      this.db.prepare('SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at FROM workspace_members WHERE id = ?').get(memberId) as unknown as WorkspaceMemberRow,
+    )
+  }
+
+  async removeWorkspaceMember(actorAccountId: string, memberId: number): Promise<WorkspaceMember | null> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(actorAccountId)
+    const member = this.db
+      .prepare('SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at FROM workspace_members WHERE id = ? AND workspace_id = ?')
+      .get(memberId, workspaceId) as WorkspaceMemberRow | undefined
+
+    if (!member) {
+      return null
+    }
+
+    if (member.account_id === actorAccountId) {
+      throw conflict('You cannot remove your own workspace membership.')
+    }
+
+    if (member.role === 'owner') {
+      const ownerCount = this.db.prepare("SELECT COUNT(*) AS count FROM workspace_members WHERE workspace_id = ? AND role = 'owner' AND status = 'active'").get(workspaceId) as { count: number }
+      if (ownerCount.count <= 1) {
+        throw conflict('A workspace must always have at least one active owner.')
+      }
+    }
+
+    this.db.prepare('DELETE FROM workspace_members WHERE id = ? AND workspace_id = ?').run(memberId, workspaceId)
+    return this.toWorkspaceMember(member)
+  }
+
+  async hasMinimumRole(accountId: string, minimumRole: WorkspaceRole): Promise<boolean> {
+    await this.readyPromise
+    const access = this.getWorkspaceAccessSync(accountId)
+    return Boolean(access && WORKSPACE_ROLE_RANK[access.member.role] >= WORKSPACE_ROLE_RANK[minimumRole])
+  }
+
+  async refreshScheduledExports() {
+    await this.runDueScheduledExports()
   }
 
   async createProject(
@@ -490,6 +686,7 @@ export class SqliteEventStore {
     },
   ): Promise<ProjectRecord> {
     await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(account.accountId)
 
     try {
       this.db
@@ -502,9 +699,10 @@ export class SqliteEventStore {
             created_at,
             owner_account_id,
             owner_email,
-            owner_display_name
+            owner_display_name,
+            workspace_id
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           input.projectId,
@@ -515,6 +713,7 @@ export class SqliteEventStore {
           account.accountId,
           account.email,
           account.displayName,
+          workspaceId,
         )
     } catch (error) {
       if ((error as Error).message.includes('UNIQUE')) {
@@ -529,6 +728,7 @@ export class SqliteEventStore {
 
   async deleteProjectForAccount(accountId: string, projectId: string) {
     await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
 
     const project = await this.getProjectRecordForAccount(accountId, projectId)
     if (!project) {
@@ -546,7 +746,7 @@ export class SqliteEventStore {
               AND project_id = ?
           `,
         )
-        .run(accountId, projectId)
+        .run(workspaceId, projectId)
 
       this.db
         .prepare(
@@ -556,17 +756,17 @@ export class SqliteEventStore {
               AND project_id = ?
           `,
         )
-        .run(accountId, projectId)
+        .run(workspaceId, projectId)
 
       this.db
         .prepare(
           `
             DELETE FROM registered_projects
-            WHERE owner_account_id = ?
+            WHERE workspace_id = ?
               AND project_id = ?
           `,
         )
-        .run(accountId, projectId)
+        .run(workspaceId, projectId)
 
       this.db
         .prepare(
@@ -576,7 +776,7 @@ export class SqliteEventStore {
               AND project_id = ?
           `,
         )
-        .run(accountId, projectId)
+        .run(workspaceId, projectId)
 
       this.db.exec('COMMIT')
     } catch (error) {
@@ -589,6 +789,7 @@ export class SqliteEventStore {
 
   async listProjectsForAccount(accountId: string): Promise<ProjectRecord[]> {
     await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
     const rows = this.db
       .prepare(`
         SELECT
@@ -599,12 +800,13 @@ export class SqliteEventStore {
           created_at,
           owner_account_id,
           owner_email,
-          owner_display_name
+          owner_display_name,
+          workspace_id
         FROM registered_projects
-        WHERE owner_account_id = ?
+        WHERE workspace_id = ?
         ORDER BY project_name COLLATE NOCASE ASC, project_id ASC
       `)
-      .all(accountId) as unknown as RegisteredProjectRow[]
+      .all(workspaceId) as unknown as RegisteredProjectRow[]
 
     return rows.map((row) => this.toProjectRecord(row))
   }
@@ -616,6 +818,7 @@ export class SqliteEventStore {
 
   async getProjectRecordForAccount(accountId: string, projectId: string) {
     await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
     const row = this.db
       .prepare(`
         SELECT
@@ -626,12 +829,13 @@ export class SqliteEventStore {
           created_at,
           owner_account_id,
           owner_email,
-          owner_display_name
+          owner_display_name,
+          workspace_id
         FROM registered_projects
-        WHERE owner_account_id = ?
+        WHERE workspace_id = ?
           AND project_id = ?
       `)
-      .get(accountId, projectId) as RegisteredProjectRow | undefined
+      .get(workspaceId, projectId) as RegisteredProjectRow | undefined
 
     return row ? this.toProjectRecord(row) : null
   }
@@ -654,13 +858,14 @@ export class SqliteEventStore {
           created_at,
           owner_account_id,
           owner_email,
-          owner_display_name
+          owner_display_name,
+          workspace_id
         FROM registered_projects
         WHERE project_id IN (${placeholders})
       `)
       .all(...projectIds) as unknown as RegisteredProjectRow[]
 
-    return new Map(rows.map((row) => [row.project_id, this.toProjectRecord(row)]))
+    return new Map(rows.map((row) => [row.project_id, { ...this.toProjectRecord(row), ownerAccountId: row.workspace_id }]))
   }
 
   private insertEventsSync(events: StoredPulseEvent[]) {
@@ -836,23 +1041,24 @@ export class SqliteEventStore {
 
   async getOverviewAnalytics(accountId: string, fromRaw: string | null, toRaw: string | null, granularityRaw: string | null) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId), fromRaw, toRaw, granularityRaw)
-    const dayCounts = this.getPageViewDayCountsSync(accountId, resolved)
-    const totalPageViews = this.getPageViewCountSync(accountId, resolved)
-    const sessionEvents = this.getRangeEventsSync(accountId, resolved)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId), fromRaw, toRaw, granularityRaw)
+    const dayCounts = this.getPageViewDayCountsSync(workspaceId, resolved)
+    const totalPageViews = this.getPageViewCountSync(workspaceId, resolved)
+    const sessionEvents = this.getRangeEventsSync(workspaceId, resolved)
     const sessionSummaries = summarizeSessions(sessionEvents)
     const sessionValues = Array.from(sessionSummaries.values())
     const totalSessionDuration = sessionValues.reduce((sum, session) => sum + session.durationSeconds, 0)
     const bouncedSessions = sessionValues.filter((session) => session.pageViews === 1 && session.engagementEvents === 0).length
-    const uniqueVisitors = this.getDistinctCountSync(accountId, 'visitor_key', resolved)
-    const liveVisitors = this.getDistinctCountSync(accountId, 'session_id', resolved, Date.now() - 5 * 60 * 1000)
-    const topPages = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'path', resolved), totalPageViews)
-    const topReferrers = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'referrer', resolved), totalPageViews)
-    const deviceMix = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'device_type', resolved), totalPageViews, 10)
-    const browserMix = summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'browser_name', resolved), totalPageViews, 10)
+    const uniqueVisitors = this.getDistinctCountSync(workspaceId, 'visitor_key', resolved)
+    const liveVisitors = this.getDistinctCountSync(workspaceId, 'session_id', resolved, Date.now() - 5 * 60 * 1000)
+    const topPages = summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'path', resolved), totalPageViews)
+    const topReferrers = summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'referrer', resolved), totalPageViews)
+    const deviceMix = summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'device_type', resolved), totalPageViews, 10)
+    const browserMix = summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'browser_name', resolved), totalPageViews, 10)
 
-    const topProjectsPageViews = this.getPageViewBreakdownSync(accountId, 'project_id', resolved)
-    const topProjectsUniqueVisitors = this.getDistinctCountsByProjectSync(accountId, resolved)
+    const topProjectsPageViews = this.getPageViewBreakdownSync(workspaceId, 'project_id', resolved)
+    const topProjectsUniqueVisitors = this.getDistinctCountsByProjectSync(workspaceId, resolved)
     const totalProjectPageViews = Array.from(topProjectsPageViews.values()).reduce((sum, value) => sum + value, 0)
 
     const topProjects = Array.from(topProjectsPageViews.entries())
@@ -872,8 +1078,8 @@ export class SqliteEventStore {
     return {
       range: resolved.range,
       totals: {
-        acceptedEvents: this.getAcceptedEventCountSync(accountId, resolved),
-        trackedProjects: this.getTrackedProjectCountSync(accountId, resolved),
+        acceptedEvents: this.getAcceptedEventCountSync(workspaceId, resolved),
+        trackedProjects: this.getTrackedProjectCountSync(workspaceId, resolved),
       },
       metrics: [
         { key: 'page_views', label: 'Page Views', value: totalPageViews, unit: 'count' as const },
@@ -903,7 +1109,7 @@ export class SqliteEventStore {
       topReferrers,
       deviceMix,
       browserMix,
-      recentEvents: this.getRecentEventRowsSync(accountId, resolved, { limit: 10 }),
+      recentEvents: this.getRecentEventRowsSync(workspaceId, resolved, { limit: 10 }),
     } satisfies OverviewAnalyticsResponse
   }
 
@@ -915,9 +1121,10 @@ export class SqliteEventStore {
     granularityRaw: string | null,
   ) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
-    const pageViewCount = this.getPageViewCountSync(accountId, resolved, projectId)
-    const sessionEvents = this.getRangeEventsSync(accountId, resolved, projectId)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId, projectId), fromRaw, toRaw, granularityRaw)
+    const pageViewCount = this.getPageViewCountSync(workspaceId, resolved, projectId)
+    const sessionEvents = this.getRangeEventsSync(workspaceId, resolved, projectId)
     const sessionSummaries = summarizeSessions(sessionEvents)
     const sessionValues = Array.from(sessionSummaries.values())
     const totalSessionDuration = sessionValues.reduce((sum, session) => sum + session.durationSeconds, 0)
@@ -934,14 +1141,14 @@ export class SqliteEventStore {
         {
           key: 'unique_visitors',
           label: 'Unique Visitors',
-          value: this.getDistinctCountSync(accountId, 'visitor_key', resolved, undefined, projectId),
+          value: this.getDistinctCountSync(workspaceId, 'visitor_key', resolved, undefined, projectId),
           unit: 'count' as const,
           approximate: true,
         },
         {
           key: 'live_visitors',
           label: 'Live Visitors',
-          value: this.getDistinctCountSync(accountId, 'session_id', resolved, Date.now() - 5 * 60 * 1000, projectId),
+          value: this.getDistinctCountSync(workspaceId, 'session_id', resolved, Date.now() - 5 * 60 * 1000, projectId),
           unit: 'count' as const,
           approximate: true,
         },
@@ -958,30 +1165,31 @@ export class SqliteEventStore {
           unit: 'seconds' as const,
         },
       ],
-      series: Array.from(buildSeries(this.getPageViewDayCountsSync(accountId, resolved, projectId), resolved.range.granularity).entries())
+      series: Array.from(buildSeries(this.getPageViewDayCountsSync(workspaceId, resolved, projectId), resolved.range.granularity).entries())
         .sort(([a], [b]) => a - b)
         .map(([bucketMs, value]) => ({
           label: formatBucketLabel(new Date(bucketMs), resolved.range.granularity),
           value,
         })),
-      topPages: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'path', resolved, projectId), pageViewCount),
-      topReferrers: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'referrer', resolved, projectId), pageViewCount),
-      eventTable: summarizeBreakdown(this.getEventBreakdownSync(accountId, 'event_name', resolved, projectId), this.getAcceptedEventCountSync(accountId, resolved, projectId), 10).map(
+      topPages: summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'path', resolved, projectId), pageViewCount),
+      topReferrers: summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'referrer', resolved, projectId), pageViewCount),
+      eventTable: summarizeBreakdown(this.getEventBreakdownSync(workspaceId, 'event_name', resolved, projectId), this.getAcceptedEventCountSync(workspaceId, resolved, projectId), 10).map(
         (row) => ({
           label: row.label,
           value: row.value,
         }),
       ),
-      countryMix: summarizeBreakdown(this.getPageViewBreakdownSync(accountId, 'country_code', resolved, projectId), pageViewCount, 10),
-      recentEvents: this.getRecentEventRowsSync(accountId, resolved, { projectId, limit: 10 }),
+      countryMix: summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'country_code', resolved, projectId), pageViewCount, 10),
+      recentEvents: this.getRecentEventRowsSync(workspaceId, resolved, { projectId, limit: 10 }),
     } satisfies ProjectAnalyticsResponse
   }
 
   async getPagesReport(accountId: string, fromRaw: string | null, toRaw: string | null, granularityRaw: string | null, projectId?: string) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
-    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(accountId, resolved, projectId))
-    const pageViews = this.getPageViewBreakdownSync(accountId, 'path', resolved, projectId)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId, projectId), fromRaw, toRaw, granularityRaw)
+    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(workspaceId, resolved, projectId))
+    const pageViews = this.getPageViewBreakdownSync(workspaceId, 'path', resolved, projectId)
     const exits = new Map<string, number>()
     const inclusions = new Map<string, number>()
     const landings = new Map<string, number>()
@@ -1035,8 +1243,9 @@ export class SqliteEventStore {
     projectId?: string,
   ) {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, granularityRaw)
-    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(accountId, resolved, projectId))
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId, projectId), fromRaw, toRaw, granularityRaw)
+    const sessionSummaries = summarizeSessions(this.getRangeEventsSync(workspaceId, resolved, projectId))
     const referrerCounts = new Map<string, number>()
     let ownedVisits = 0
     let searchLedVisits = 0
@@ -1066,7 +1275,8 @@ export class SqliteEventStore {
 
   async getConsentSnapshot(accountId: string, fromRaw: string | null, toRaw: string | null, projectId?: string): Promise<ConsentSnapshot> {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId, projectId), fromRaw, toRaw, null)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId, projectId), fromRaw, toRaw, null)
     const projectClause = projectId ? 'AND project_id = ?' : ''
     const row = this.db
       .prepare(`
@@ -1085,7 +1295,7 @@ export class SqliteEventStore {
       .get(
         resolved.fromMs,
         resolved.toMs,
-        accountId,
+        workspaceId,
         ...(projectId ? [projectId] : []),
       ) as
       | {
@@ -1108,6 +1318,7 @@ export class SqliteEventStore {
 
   async getLatestEventAt(accountId: string, projectId?: string): Promise<string | null> {
     await this.ensureCurrentReadModel()
+    const workspaceId = this.getWorkspaceIdSync(accountId)
     const projectClause = projectId ? 'AND project_id = ?' : ''
     const row = this.db
       .prepare(`
@@ -1116,16 +1327,17 @@ export class SqliteEventStore {
         WHERE account_id = ?
         ${projectClause}
       `)
-      .get(accountId, ...(projectId ? [projectId] : [])) as { last_occurred_at: string | null } | undefined
+      .get(workspaceId, ...(projectId ? [projectId] : [])) as { last_occurred_at: string | null } | undefined
 
     return row?.last_occurred_at || null
   }
 
   async getRecentEventsPage(accountId: string, query: RecentEventsQuery): Promise<RecentEventsPageResponse> {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getBoundsSync(accountId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getBoundsSync(workspaceId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
     const limit = clampLimit(query.limitRaw, 25)
-    const rows = this.getRecentEventRowsSync(accountId, resolved, {
+    const rows = this.getRecentEventRowsSync(workspaceId, resolved, {
       projectId: query.projectId,
       eventName: query.eventName,
       deviceType: query.deviceType,
@@ -1140,7 +1352,7 @@ export class SqliteEventStore {
     const nextCursor = rows.length > limit && cursorRow
       ? encodeCursor({
           occurredAtMs: Date.parse(cursorRow.occurredAt),
-          eventId: this.getRecentEventIdSync(accountId, cursorRow, resolved, query.projectId),
+          eventId: this.getRecentEventIdSync(workspaceId, cursorRow, resolved, query.projectId),
         })
       : null
 
@@ -1175,6 +1387,7 @@ export class SqliteEventStore {
 
   async getEventDebugDetail(accountId: string, eventId: string): Promise<EventDebugDetailResponse | null> {
     await this.ensureCurrentReadModel()
+    const workspaceId = this.getWorkspaceIdSync(accountId)
 
     const row = this.db
       .prepare(`
@@ -1183,7 +1396,7 @@ export class SqliteEventStore {
         WHERE account_id = ?
           AND event_id = ?
       `)
-      .get(accountId, eventId) as { event_json: string } | undefined
+      .get(workspaceId, eventId) as { event_json: string } | undefined
 
     if (!row) {
       return null
@@ -1197,9 +1410,10 @@ export class SqliteEventStore {
 
   async getRejectedEventsPage(accountId: string, query: RejectedEventsQuery): Promise<RejectedEventsPageResponse> {
     await this.ensureCurrentReadModel()
-    const resolved = resolveRange(this.getRejectionBoundsSync(accountId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const resolved = resolveRange(this.getRejectionBoundsSync(workspaceId, query.projectId), query.fromRaw, query.toRaw, query.granularityRaw)
     const limit = clampLimit(query.limitRaw, 10)
-    const rows = this.getRejectedEventRowsSync(accountId, resolved, {
+    const rows = this.getRejectedEventRowsSync(workspaceId, resolved, {
       projectId: query.projectId,
       eventName: query.eventName,
       pathPrefix: query.pathPrefix,
@@ -1242,19 +1456,20 @@ export class SqliteEventStore {
 
   async getProjectVerification(accountId: string, projectId: string): Promise<ProjectVerificationResponse | null> {
     await this.ensureCurrentReadModel()
+    const workspaceId = this.getWorkspaceIdSync(accountId)
     const project = await this.getProjectRecordForAccount(accountId, projectId)
 
     if (!project) {
       return null
     }
 
-    const latestAcceptedEvent = this.getLatestAcceptedEventSync(accountId, projectId)
-    const latestPageViewEvent = this.getLatestAcceptedEventSync(accountId, projectId, 'page_view')
-    const latestRejectedEvent = this.getLatestRejectedEventSync(accountId, projectId)
-    const recentAcceptedEvents = this.getRecentEventRowsByProjectSync(accountId, projectId, 5)
-    const recentRejectedEvents = this.getRecentRejectedRowsByProjectSync(accountId, projectId, 5)
+    const latestAcceptedEvent = this.getLatestAcceptedEventSync(workspaceId, projectId)
+    const latestPageViewEvent = this.getLatestAcceptedEventSync(workspaceId, projectId, 'page_view')
+    const latestRejectedEvent = this.getLatestRejectedEventSync(workspaceId, projectId)
+    const recentAcceptedEvents = this.getRecentEventRowsByProjectSync(workspaceId, projectId, 5)
+    const recentRejectedEvents = this.getRecentRejectedRowsByProjectSync(workspaceId, projectId, 5)
     const latestConsentSignal = this.pickLatestConsentSignal(latestAcceptedEvent, latestRejectedEvent)
-    const distinctTrackedPages = this.getDistinctTrackedPageCountSync(accountId, projectId)
+    const distinctTrackedPages = this.getDistinctTrackedPageCountSync(workspaceId, projectId)
 
     const checks: ProjectVerificationCheck[] = [
       latestPageViewEvent
@@ -1398,6 +1613,242 @@ export class SqliteEventStore {
     }
   }
 
+  async listExportSchedules(accountId: string): Promise<ExportSchedule[]> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const rows = this.db
+      .prepare(`
+        SELECT id, workspace_id, name, report_slug, cadence, format, owner_account_id, owner_email,
+          owner_display_name, recipients_json, last_run_at, next_run_at, status, created_at, updated_at
+        FROM export_schedules
+        WHERE workspace_id = ?
+        ORDER BY next_run_at ASC, id ASC
+      `)
+      .all(workspaceId) as unknown as ExportScheduleRow[]
+
+    return rows.map((row) => this.toExportSchedule(row))
+  }
+
+  async listExportRuns(accountId: string): Promise<ExportRun[]> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const rows = this.db
+      .prepare(`
+        SELECT id, workspace_id, schedule_id, name, status, format, scope_label, started_at,
+          completed_at, row_count, detail, file_name, file_path
+        FROM export_runs
+        WHERE workspace_id = ?
+        ORDER BY started_at DESC, id DESC
+        LIMIT 25
+      `)
+      .all(workspaceId) as unknown as ExportRunRow[]
+
+    return rows.map((row) => this.toExportRun(row))
+  }
+
+  async createManualExport(account: AuthenticatedAccount, request: CreateExportRequest): Promise<ExportRun> {
+    await this.ensureCurrentReadModel()
+    const workspaceId = this.getWorkspaceIdSync(account.accountId)
+    if (request.projectId && !(await this.getProjectRecordForAccount(account.accountId, request.projectId))) {
+      return Promise.reject(conflict(`Unknown project: ${request.projectId}.`))
+    }
+
+    const materialized = await this.materializeExport(workspaceId, account, request, 'manual')
+    return materialized
+  }
+
+  async readExportArtifact(accountId: string, runId: string): Promise<{ body: Buffer; fileName: string; contentType: string } | null> {
+    await this.readyPromise
+    const workspaceId = this.getWorkspaceIdSync(accountId)
+    const row = this.db
+      .prepare(`
+        SELECT id, workspace_id, schedule_id, name, status, format, scope_label, started_at,
+          completed_at, row_count, detail, file_name, file_path
+        FROM export_runs
+        WHERE id = ? AND workspace_id = ?
+      `)
+      .get(runId, workspaceId) as ExportRunRow | undefined
+
+    if (!row?.file_path || !row.file_name) {
+      return null
+    }
+
+    const body = await readFile(row.file_path)
+    return {
+      body,
+      fileName: row.file_name,
+      contentType: row.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/pdf',
+    }
+  }
+
+  private toExportSchedule(row: ExportScheduleRow): ExportSchedule {
+    let recipients: string[] = []
+    try {
+      const parsed = JSON.parse(row.recipients_json) as unknown
+      if (Array.isArray(parsed)) {
+        recipients = parsed.filter((value): value is string => typeof value === 'string')
+      }
+    } catch {
+      recipients = []
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      reportSlug: row.report_slug,
+      cadence: row.cadence,
+      format: row.format,
+      owner: row.owner_display_name,
+      recipients,
+      lastRunAt: row.last_run_at,
+      nextRunAt: row.next_run_at,
+      status: row.status,
+      detail: row.status === 'delayed' ? 'The latest scheduled run needs attention before the next delivery.' : 'Ready for the next scheduled delivery.',
+    }
+  }
+
+  private toExportRun(row: ExportRunRow): ExportRun {
+    return {
+      id: row.id,
+      scheduleId: row.schedule_id,
+      name: row.name,
+      status: row.status,
+      format: row.format,
+      scopeLabel: row.scope_label,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      rowCount: row.row_count,
+      detail: row.detail,
+      ...(row.file_path ? { downloadUrl: `/v1/exports/runs/${encodeURIComponent(row.id)}/download` } : {}),
+    }
+  }
+
+  private async materializeExport(
+    workspaceId: string,
+    account: AuthenticatedAccount,
+    request: CreateExportRequest,
+    scheduleId: string,
+  ): Promise<ExportRun> {
+    const reportOptions = {
+      from: request.from || null,
+      to: request.to || null,
+      granularity: request.granularity || 'day',
+    } as const
+    const sections: ExportSection[] = []
+    let rowCount = 0
+    let name: string
+    const scopeLabel = request.projectId ? `Project ${request.projectId}` : 'Workspace'
+
+    if (request.reportSlug === 'executive') {
+      const overview = await this.getOverviewAnalytics(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity)
+      const metrics = overview.metrics.map((metric) => ({ label: metric.label, value: metric.value }))
+      sections.push(
+        { title: 'Metrics', rows: metrics },
+        { title: 'Top projects', rows: overview.topProjects.map((row) => ({ label: row.projectName, value: row.pageViews })) },
+        { title: 'Top pages', rows: overview.topPages.map((row) => ({ label: row.label, value: row.value })) },
+        { title: 'Top referrers', rows: overview.topReferrers.map((row) => ({ label: row.label, value: row.value })) },
+      )
+      name = 'Executive overview'
+    } else if (request.reportSlug === 'pages') {
+      const report = await this.getPagesReport(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity, request.projectId)
+      sections.push({ title: 'Pages', rows: report.rows.map((row) => ({ label: row.label, value: row.value })) })
+      sections.push({ title: 'Summary', rows: [{ label: 'Tracked pages', value: report.trackedPages }, { label: 'Average exit rate', value: `${report.averageExitRate}%` }] })
+      rowCount = report.rows.length
+      name = 'Pages report'
+    } else {
+      const report = await this.getReferrersReport(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity, request.projectId)
+      sections.push({ title: 'Referrers', rows: report.rows.map((row) => ({ label: row.label, value: row.value })) })
+      sections.push({ title: 'Summary', rows: [{ label: 'Tracked referrers', value: report.trackedReferrers }, { label: 'Owned share', value: `${report.ownedShare}%` }, { label: 'Search-led visits', value: report.searchLedVisits }] })
+      rowCount = report.rows.length
+      name = 'Referrers report'
+    }
+
+    if (!rowCount) {
+      rowCount = sections.reduce((sum, section) => sum + section.rows.length, 0)
+    }
+
+    const rows = sections.flatMap((section) => section.rows.map((row) => [section.title, row.label, row.value] as Array<string | number>))
+    const body = request.format === 'csv'
+      ? buildCsvDocument(['Section', 'Label', 'Value'], rows)
+      : buildPdfSummaryDocument(`${name} · ${scopeLabel}`, sections)
+    const extension = request.format === 'csv' ? 'csv' : 'pdf'
+    const runId = randomUUID()
+    const fileName = `pulse-${request.reportSlug}-${runId}.${extension}`
+    const workspaceDirectory = `${this.config.exportDirectory}/${workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    const filePath = `${workspaceDirectory}/${fileName}`
+    await mkdir(workspaceDirectory, { recursive: true })
+    await writeFile(filePath, body)
+
+    const startedAt = new Date().toISOString()
+    const completedAt = new Date().toISOString()
+    const detail = `${name} generated as ${request.format === 'csv' ? 'CSV' : 'PDF summary'} for ${scopeLabel}.`
+    this.db.prepare(`
+      INSERT INTO export_runs (
+        id, workspace_id, schedule_id, name, status, format, scope_label, started_at,
+        completed_at, row_count, detail, file_name, file_path
+      ) VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(runId, workspaceId, scheduleId, name, request.format, scopeLabel, startedAt, completedAt, rowCount, detail, fileName, filePath)
+
+    return this.toExportRun(
+      this.db.prepare(`
+        SELECT id, workspace_id, schedule_id, name, status, format, scope_label, started_at,
+          completed_at, row_count, detail, file_name, file_path
+        FROM export_runs WHERE id = ?
+      `).get(runId) as unknown as ExportRunRow,
+    )
+  }
+
+  private async runDueScheduledExports() {
+    if (this.exportRunPromise) {
+      return this.exportRunPromise
+    }
+
+    this.exportRunPromise = Promise.resolve().then(async () => {
+      await this.readyPromise
+      await this.runMaintenance()
+      const now = new Date()
+      const dueSchedules = this.db
+        .prepare(`
+          SELECT id, workspace_id, name, report_slug, cadence, format, owner_account_id, owner_email,
+            owner_display_name, recipients_json, last_run_at, next_run_at, status, created_at, updated_at
+          FROM export_schedules
+          WHERE next_run_at <= ?
+          ORDER BY next_run_at ASC
+          LIMIT 10
+        `)
+        .all(now.toISOString()) as unknown as ExportScheduleRow[]
+
+      for (const schedule of dueSchedules) {
+        const account: AuthenticatedAccount = {
+          accountId: schedule.workspace_id,
+          continentalId: schedule.workspace_id,
+          email: schedule.owner_email,
+          username: '',
+          displayName: schedule.owner_display_name,
+        }
+        try {
+          await this.materializeExport(schedule.workspace_id, account, { reportSlug: schedule.report_slug, format: 'pdf_summary' }, schedule.id)
+          const nextRunAt = schedule.cadence === 'weekly' ? addDays(new Date(schedule.next_run_at), 7) : nextMonthStartUtc(new Date(schedule.next_run_at))
+          this.db.prepare('UPDATE export_schedules SET last_run_at = ?, next_run_at = ?, status = \'ok\', updated_at = ? WHERE id = ?').run(now.toISOString(), nextRunAt.toISOString(), now.toISOString(), schedule.id)
+        } catch (error) {
+          this.db.prepare('UPDATE export_schedules SET status = \'delayed\', updated_at = ? WHERE id = ?').run(now.toISOString(), schedule.id)
+          const detail = error instanceof Error ? error.message : 'Scheduled export failed.'
+          const failedRunId = randomUUID()
+          this.db.prepare(`
+            INSERT INTO export_runs (
+              id, workspace_id, schedule_id, name, status, format, scope_label, started_at,
+              completed_at, row_count, detail, file_name, file_path
+            ) VALUES (?, ?, ?, ?, 'failed', 'pdf_summary', 'Workspace', ?, ?, 0, ?, NULL, NULL)
+          `).run(failedRunId, schedule.workspace_id, schedule.id, schedule.name, now.toISOString(), now.toISOString(), `Scheduled export failed: ${detail}`)
+        }
+      }
+    }).finally(() => {
+      this.exportRunPromise = null
+    })
+
+    return this.exportRunPromise
+  }
+
   private async initialize() {
     this.initializeSchemaSync()
     await this.migrateLegacyFileIfNeeded()
@@ -1513,10 +1964,78 @@ export class SqliteEventStore {
         created_at TEXT NOT NULL,
         owner_account_id TEXT NOT NULL,
         owner_email TEXT NOT NULL,
-        owner_display_name TEXT NOT NULL
+        owner_display_name TEXT NOT NULL,
+        workspace_id TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS registered_projects_owner_account_idx ON registered_projects (owner_account_id, project_name);
+      CREATE TABLE IF NOT EXISTS workspaces (
+        workspace_id TEXT PRIMARY KEY,
+        workspace_name TEXT NOT NULL,
+        default_retention_months INTEGER NOT NULL DEFAULT 13,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL,
+        account_id TEXT,
+        email TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS workspace_members_workspace_email_idx
+        ON workspace_members (workspace_id, email);
+      CREATE UNIQUE INDEX IF NOT EXISTS workspace_members_active_account_idx
+        ON workspace_members (account_id)
+        WHERE account_id IS NOT NULL AND status = 'active';
+      CREATE INDEX IF NOT EXISTS workspace_members_workspace_idx
+        ON workspace_members (workspace_id, status, role);
+
+      CREATE TABLE IF NOT EXISTS export_schedules (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        report_slug TEXT NOT NULL,
+        cadence TEXT NOT NULL,
+        format TEXT NOT NULL,
+        owner_account_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        owner_display_name TEXT NOT NULL,
+        recipients_json TEXT NOT NULL,
+        last_run_at TEXT,
+        next_run_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS export_schedules_workspace_next_run_idx
+        ON export_schedules (workspace_id, next_run_at);
+
+      CREATE TABLE IF NOT EXISTS export_runs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        schedule_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        format TEXT NOT NULL,
+        scope_label TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        detail TEXT NOT NULL,
+        file_name TEXT,
+        file_path TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS export_runs_workspace_started_idx
+        ON export_runs (workspace_id, started_at DESC);
 
       CREATE TABLE IF NOT EXISTS collector_rejections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1549,6 +2068,9 @@ export class SqliteEventStore {
     this.ensureColumnSync('raw_events', 'account_id', "TEXT NOT NULL DEFAULT ''")
     this.ensureColumnSync('daily_rollups', 'account_id', "TEXT NOT NULL DEFAULT ''")
     this.ensureColumnSync('collector_rejections', 'occurred_at_ms', 'INTEGER')
+    this.ensureColumnSync('registered_projects', 'workspace_id', "TEXT NOT NULL DEFAULT ''")
+    this.db.prepare("UPDATE registered_projects SET workspace_id = owner_account_id WHERE workspace_id = ''").run()
+    this.db.exec('CREATE INDEX IF NOT EXISTS registered_projects_workspace_idx ON registered_projects (workspace_id, project_name)')
   }
 
   private async migrateLegacyFileIfNeeded() {
@@ -1777,6 +2299,154 @@ export class SqliteEventStore {
     this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`)
   }
 
+  private toWorkspaceMember(row: WorkspaceMemberRow): WorkspaceMember {
+    return {
+      id: row.id,
+      accountId: row.account_id,
+      email: row.email,
+      displayName: row.display_name,
+      role: row.role,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  private getWorkspaceAccessSync(accountId: string): WorkspaceAccess | null {
+    const row = this.db
+      .prepare(`
+        SELECT
+          m.id,
+          m.workspace_id,
+          m.account_id,
+          m.email,
+          m.display_name,
+          m.role,
+          m.status,
+          m.created_at,
+          m.updated_at,
+          w.workspace_name
+        FROM workspace_members m
+        JOIN workspaces w ON w.workspace_id = m.workspace_id
+        WHERE m.account_id = ? AND m.status = 'active'
+        LIMIT 1
+      `)
+      .get(accountId) as (WorkspaceMemberRow & { workspace_name: string }) | undefined
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      workspaceId: row.workspace_id,
+      workspaceName: row.workspace_name,
+      member: this.toWorkspaceMember(row),
+    }
+  }
+
+  private getWorkspaceIdSync(accountId: string) {
+    return this.getWorkspaceAccessSync(accountId)?.workspaceId || accountId
+  }
+
+  private ensureWorkspaceAccessSync(account: AuthenticatedAccount): WorkspaceAccess {
+    const existing = this.getWorkspaceAccessSync(account.accountId)
+    if (existing) {
+      return existing
+    }
+
+    const pending = this.db
+      .prepare(`
+        SELECT id, workspace_id, account_id, email, display_name, role, status, created_at, updated_at
+        FROM workspace_members
+        WHERE lower(email) = lower(?) AND status = 'invited'
+        ORDER BY id ASC
+        LIMIT 1
+      `)
+      .get(account.email) as WorkspaceMemberRow | undefined
+
+    const now = new Date().toISOString()
+    if (pending) {
+      this.db
+        .prepare(`
+          UPDATE workspace_members
+          SET account_id = ?, display_name = ?, status = 'active', updated_at = ?
+          WHERE id = ?
+        `)
+        .run(account.accountId, account.displayName, now, pending.id)
+
+      const access = this.getWorkspaceAccessSync(account.accountId)
+      if (access) {
+        return access
+      }
+    }
+
+    const workspaceId = account.accountId
+    this.db
+      .prepare(`
+        INSERT OR IGNORE INTO workspaces (workspace_id, workspace_name, default_retention_months, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(workspaceId, `${account.displayName} Workspace`, this.config.defaultRetentionMonths, now, now)
+    this.db
+      .prepare(`
+        INSERT OR IGNORE INTO workspace_members (workspace_id, account_id, email, display_name, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'owner', 'active', ?, ?)
+      `)
+      .run(workspaceId, account.accountId, account.email.toLowerCase(), account.displayName, now, now)
+
+    const access = this.getWorkspaceAccessSync(account.accountId)
+    if (!access) {
+      throw new Error(`Could not initialize workspace access for ${account.accountId}.`)
+    }
+
+    return access
+  }
+
+  private ensureDefaultExportSchedulesSync(access: WorkspaceAccess) {
+    const row = this.db.prepare('SELECT COUNT(*) AS count FROM export_schedules WHERE workspace_id = ?').get(access.workspaceId) as { count: number }
+    if (row.count > 0) {
+      return
+    }
+
+    const now = new Date()
+    const createdAt = now.toISOString()
+    const insert = this.db.prepare(`
+      INSERT INTO export_schedules (
+        id, workspace_id, name, report_slug, cadence, format, owner_account_id, owner_email,
+        owner_display_name, recipients_json, last_run_at, next_run_at, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'pdf_summary', ?, ?, ?, ?, NULL, ?, 'ok', ?, ?)
+    `)
+
+    insert.run(
+      `${access.workspaceId}:weekly-executive-summary`,
+      access.workspaceId,
+      'Weekly executive summary',
+      'executive',
+      'weekly',
+      access.member.accountId || access.workspaceId,
+      access.member.email,
+      access.member.displayName,
+      JSON.stringify([access.member.email]),
+      nextMondayAtHourUtc(now, 8).toISOString(),
+      createdAt,
+      createdAt,
+    )
+    insert.run(
+      `${access.workspaceId}:monthly-acquisition-digest`,
+      access.workspaceId,
+      'Monthly acquisition digest',
+      'referrers',
+      'monthly',
+      access.member.accountId || access.workspaceId,
+      access.member.email,
+      access.member.displayName,
+      JSON.stringify([access.member.email]),
+      nextMonthStartUtc(now).toISOString(),
+      createdAt,
+      createdAt,
+    )
+  }
+
   private countRegisteredProjectsSync() {
     const row = this.db.prepare('SELECT COUNT(*) AS count FROM registered_projects').get() as { count: number }
     return row.count
@@ -1806,7 +2476,8 @@ export class SqliteEventStore {
           created_at,
           owner_account_id,
           owner_email,
-          owner_display_name
+          owner_display_name,
+          workspace_id
         FROM registered_projects
         WHERE project_id = ?
       `)

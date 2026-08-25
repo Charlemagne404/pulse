@@ -42,14 +42,18 @@ const createConfig = (
   port: 0,
   authApiBaseUrl: 'https://auth.continental-hub.com',
   corsOrigin: '*',
+  corsOrigins: new Set(['*']),
+  collectorCorsOrigins: new Set(['*']),
   maxBatchSize: overrides.maxBatchSize ?? 25,
   maxBodyBytes: 262_144,
   rateLimitWindowMs: overrides.rateLimitWindowMs ?? 60_000,
   rateLimitMaxRequests: overrides.rateLimitMaxRequests ?? 120,
   databasePath: join(dir, 'pulse.sqlite'),
   legacySinkPath: join(dir, 'events.ndjson'),
+  exportDirectory: join(dir, 'exports'),
   rollupIntervalMs: overrides.rollupIntervalMs ?? 25,
   retentionIntervalMs: overrides.retentionIntervalMs ?? 25,
+  exportIntervalMs: 25,
   defaultRetentionMonths: overrides.defaultRetentionMonths ?? 13,
   allowedProjectIds: new Set(['aegis', 'contitech', 'vdo-fleet', 'contitrade']),
   allowedEventNames: new Set(['page_view', 'button_click', 'form_submit', 'file_download', 'video_play']),
@@ -793,7 +797,36 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
     assert.equal(exportsBody.summary.scheduledExports, 2)
     assert.equal(exportsBody.summary.manualExportFormat, 'csv')
     assert.equal(exportsBody.schedules.length, 2)
-    assert.ok(exportsBody.recentRuns.some((run) => run.format === 'csv'))
+
+    const manualExportResponse = await fetch(`${baseUrl}/v1/exports/manual`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ reportSlug: 'pages', format: 'csv' }),
+    })
+    assert.equal(manualExportResponse.status, 201)
+    const manualExport = (await manualExportResponse.json()) as {
+      format: string
+      status: string
+      downloadUrl?: string
+    }
+    assert.equal(manualExport.format, 'csv')
+    assert.equal(manualExport.status, 'succeeded')
+    assert.match(manualExport.downloadUrl || '', /\/download$/)
+
+    const downloadResponse = await fetch(`${baseUrl}${manualExport.downloadUrl}`, {
+      headers: authHeaders(),
+    })
+    assert.equal(downloadResponse.status, 200)
+    assert.match(downloadResponse.headers.get('content-type') || '', /text\/csv/)
+    assert.match(await downloadResponse.text(), /Section,Label,Value/)
+
+    const refreshedExportsResponse = await fetch(`${baseUrl}/v1/exports`, {
+      headers: authHeaders(),
+    })
+    const refreshedExports = (await refreshedExportsResponse.json()) as {
+      recentRuns: Array<{ format: string; downloadUrl?: string }>
+    }
+    assert.ok(refreshedExports.recentRuns.some((run) => run.format === 'csv' && run.downloadUrl))
 
     const workspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
       headers: authHeaders(),
@@ -802,13 +835,88 @@ test('phase 6 endpoints expose live alerts, exports, and workspace settings', as
     const workspace = (await workspaceResponse.json()) as {
       projects: Array<{ projectId: string; retentionMonths: number }>
       operations: { rateLimitWindowMs: number; rateLimitMaxRequests: number }
+      workspace: { currentRole: string }
+      members: Array<{ role: string; status: string }>
       roles: Array<{ role: string }>
     }
     assert.equal(workspace.projects.length, 4)
     assert.ok(workspace.projects.some((project) => project.projectId === 'aegis' && project.retentionMonths === 13))
     assert.equal(workspace.operations.rateLimitWindowMs, 60_000)
     assert.equal(workspace.operations.rateLimitMaxRequests, 120)
+    assert.equal(workspace.workspace.currentRole, 'owner')
+    assert.equal(workspace.members.length, 1)
+    assert.equal(workspace.members[0]?.status, 'active')
     assert.ok(workspace.roles.some((role) => role.role === 'owner'))
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('workspace membership shares data and enforces viewer/editor/owner actions', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(createConfig(dir))
+
+  try {
+    await bootstrapWorkspace(baseUrl, 'test-user-1')
+
+    const inviteResponse = await fetch(`${baseUrl}/v1/workspace/members`, {
+      method: 'POST',
+      headers: { ...authHeaders('test-user-1'), 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'user2@example.com', displayName: 'User Two', role: 'viewer' }),
+    })
+    assert.equal(inviteResponse.status, 201)
+    const invitedMember = (await inviteResponse.json()) as { id: number; status: string; role: string }
+    assert.equal(invitedMember.status, 'invited')
+    assert.equal(invitedMember.role, 'viewer')
+
+    const viewerWorkspaceResponse = await fetch(`${baseUrl}/v1/workspace`, {
+      headers: authHeaders('test-user-2'),
+    })
+    assert.equal(viewerWorkspaceResponse.status, 200)
+    const viewerWorkspace = (await viewerWorkspaceResponse.json()) as {
+      workspace: { currentRole: string }
+      projects: Array<{ projectId: string }>
+    }
+    assert.equal(viewerWorkspace.workspace.currentRole, 'viewer')
+    assert.equal(viewerWorkspace.projects.length, 4)
+
+    const viewerCreateResponse = await fetch(`${baseUrl}/v1/projects`, {
+      method: 'POST',
+      headers: { ...authHeaders('test-user-2'), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Viewer Attempt',
+        domain: 'viewer.example.com',
+        projectId: 'viewer-attempt',
+        integrationPreset: 'website',
+      }),
+    })
+    assert.equal(viewerCreateResponse.status, 403)
+
+    const promoteResponse = await fetch(`${baseUrl}/v1/workspace/members/${invitedMember.id}`, {
+      method: 'PATCH',
+      headers: { ...authHeaders('test-user-1'), 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'editor' }),
+    })
+    assert.equal(promoteResponse.status, 200)
+
+    const editorCreateResponse = await fetch(`${baseUrl}/v1/projects`, {
+      method: 'POST',
+      headers: { ...authHeaders('test-user-2'), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Shared Expansion Project',
+        domain: 'expansion.example.com',
+        projectId: 'shared-expansion',
+        integrationPreset: 'spa',
+      }),
+    })
+    assert.equal(editorCreateResponse.status, 201)
+
+    const editorExportResponse = await fetch(`${baseUrl}/v1/exports/manual`, {
+      method: 'POST',
+      headers: { ...authHeaders('test-user-2'), 'content-type': 'application/json' },
+      body: JSON.stringify({ reportSlug: 'executive', format: 'csv' }),
+    })
+    assert.equal(editorExportResponse.status, 201)
   } finally {
     await stopServer(server)
   }
@@ -866,6 +974,34 @@ test('collector enforces per-client rate limiting before processing the request 
     const body = (await secondResponse.json()) as { error: string; message: string }
     assert.equal(body.error, 'rate_limited')
     assert.match(body.message, /try again/i)
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('collector CORS stays public while authenticated API CORS remains restricted', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer({
+    ...createConfig(dir),
+    corsOrigin: 'https://pulse.example.com',
+    corsOrigins: new Set(['https://pulse.example.com']),
+    collectorCorsOrigins: new Set(['*']),
+  })
+
+  try {
+    const collectorPreflight = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://customer.example.com' },
+    })
+    assert.equal(collectorPreflight.status, 204)
+    assert.equal(collectorPreflight.headers.get('access-control-allow-origin'), '*')
+
+    const apiPreflight = await fetch(`${baseUrl}/v1/workspace`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://customer.example.com' },
+    })
+    assert.equal(apiPreflight.status, 204)
+    assert.equal(apiPreflight.headers.get('access-control-allow-origin'), null)
   } finally {
     await stopServer(server)
   }

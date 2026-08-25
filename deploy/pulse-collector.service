@@ -13,6 +13,11 @@ Environment=PULSE_PORT=8789
 ExecStart=/usr/bin/node /home/charlie/pulse/server/dist/server.js
 Restart=on-failure
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0027
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

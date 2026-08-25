@@ -44,17 +44,27 @@ export interface AlertsResponse {
 }
 
 export type ExportScheduleStatus = 'ok' | 'delayed'
-export type ExportRunStatus = 'succeeded' | 'delayed' | 'pending'
+export type ExportRunStatus = 'succeeded' | 'delayed' | 'pending' | 'failed'
+export type ExportReportSlug = 'executive' | 'pages' | 'referrers'
+
+export interface CreateExportRequest {
+  reportSlug: ExportReportSlug
+  format: 'csv' | 'pdf_summary'
+  projectId?: string
+  from?: string
+  to?: string
+  granularity?: 'day' | 'week' | 'month'
+}
 
 export interface ExportSchedule {
   id: string
   name: string
-  reportSlug: 'executive' | 'pages' | 'referrers'
+  reportSlug: ExportReportSlug
   cadence: 'weekly' | 'monthly'
   format: 'pdf_summary'
   owner: string
   recipients: string[]
-  lastRunAt: string
+  lastRunAt: string | null
   nextRunAt: string
   status: ExportScheduleStatus
   detail: string
@@ -71,6 +81,7 @@ export interface ExportRun {
   completedAt: string | null
   rowCount: number
   detail: string
+  downloadUrl?: string
 }
 
 export interface ExportsResponse {
@@ -105,9 +116,11 @@ export interface WorkspaceSettingsResponse {
     id: string
     name: string
     roleModel: 'workspace_scoped'
+    currentRole: 'viewer' | 'editor' | 'owner'
     defaultRetentionMonths: 6 | 12 | 13
     allowedRetentionMonths: Array<6 | 12 | 13>
   }
+  members: WorkspaceMember[]
   roles: WorkspaceRoleDefinition[]
   projects: WorkspaceProjectSetting[]
   controls: Array<{
@@ -127,6 +140,17 @@ export interface WorkspaceSettingsResponse {
     lastRollupAt: string | null
     lastRetentionAt: string | null
   }
+}
+
+export interface WorkspaceMember {
+  id: number
+  accountId: string | null
+  email: string
+  displayName: string
+  role: 'viewer' | 'editor' | 'owner'
+  status: 'active' | 'invited'
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CreateProjectRequest {
@@ -242,6 +266,34 @@ const requestJson = async <T>(path: string, signal?: AbortSignal, init?: Request
 export const fetchAlerts = (signal?: AbortSignal) => requestJson<AlertsResponse>('/v1/alerts', signal)
 
 export const fetchExports = (signal?: AbortSignal) => requestJson<ExportsResponse>('/v1/exports', signal)
+
+export const createManualExport = (payload: CreateExportRequest, signal?: AbortSignal) =>
+  requestJson<ExportRun>('/v1/exports/manual', signal, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+export const downloadExport = async (runId: string, signal?: AbortSignal) => {
+  const accessToken = getAccessToken()
+  const response = await fetch(buildRequestUrl(`/v1/exports/runs/${encodeURIComponent(runId)}/download`), {
+    signal,
+    headers: {
+      accept: 'text/csv, application/pdf',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(await buildErrorMessage(response))
+  }
+
+  const disposition = response.headers.get('content-disposition') || ''
+  const fileName = disposition.match(/filename="([^"]+)"/)?.[1] || `pulse-export-${runId}`
+  return { blob: await response.blob(), fileName }
+}
 
 export const fetchWorkspaceSettings = (signal?: AbortSignal) =>
   requestJson<WorkspaceSettingsResponse>('/v1/workspace', signal)

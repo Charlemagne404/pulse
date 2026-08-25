@@ -5,8 +5,6 @@ import type {
   AuthenticatedAccount,
   CollectorConfig,
   ConsentSnapshot,
-  ExportRun,
-  ExportSchedule,
   ExportsResponse,
   WorkspaceProjectSetting,
   WorkspaceSettingsResponse,
@@ -19,12 +17,6 @@ const STALE_ROLLUP_FLOOR_MS = 5 * 60 * 1000
 type HealthSnapshot = Awaited<ReturnType<SqliteEventStore['readHealthSnapshot']>>
 
 const startOfUtcDay = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-
-const addDays = (date: Date, days: number) => new Date(date.getTime() + days * MS_PER_DAY)
-
-const startOfUtcMonth = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)
-
-const startOfNextUtcMonth = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
 
 const lastCompleteUtcDayRange = (now: Date) => {
   const todayStart = startOfUtcDay(now)
@@ -40,20 +32,6 @@ const lastCompleteUtcDayRange = (now: Date) => {
     baselineTo,
   }
 }
-
-const previousMondayAtHourUtc = (date: Date, hour: number) => {
-  const currentDay = date.getUTCDay()
-  const daysSinceMonday = (currentDay + 6) % 7
-  const monday = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceMonday, hour, 0, 0, 0))
-
-  if (monday.getTime() > date.getTime()) {
-    return addDays(monday, -7)
-  }
-
-  return monday
-}
-
-const nextMondayAtHourUtc = (date: Date, hour: number) => addDays(previousMondayAtHourUtc(date, hour), 7)
 
 const round = (value: number, digits = 1) => {
   const factor = 10 ** digits
@@ -351,105 +329,17 @@ export async function buildAlertsResponse(
 
 export async function buildExportsResponse(
   store: SqliteEventStore,
-  config: CollectorConfig,
+  _config: CollectorConfig,
   account: AuthenticatedAccount,
-  now = new Date(),
 ): Promise<ExportsResponse> {
-  const [overview, pagesReport, referrersReport, health] = await Promise.all([
-    store.getOverviewAnalytics(account.accountId, null, null, 'day'),
-    store.getPagesReport(account.accountId, null, null, 'day'),
-    store.getReferrersReport(account.accountId, null, null, 'day'),
-    store.readHealthSnapshot(),
+  await store.refreshScheduledExports()
+  const [schedules, recentRuns] = await Promise.all([
+    store.listExportSchedules(account.accountId),
+    store.listExportRuns(account.accountId),
   ])
 
-  const exportDelayRule = buildExportDelayRule(health, config, now)
-  const delayed = exportDelayRule.status === 'active'
-  const scheduleStatus: ExportSchedule['status'] = delayed ? 'delayed' : 'ok'
-  const weeklyRunStatus: ExportRun['status'] = delayed ? 'delayed' : 'succeeded'
-  const monthlyRunStatus: ExportRun['status'] = delayed ? 'pending' : 'succeeded'
-  const weeklyLastRunAt = previousMondayAtHourUtc(now, 8)
-  const weeklyNextRunAt = nextMondayAtHourUtc(now, 8)
-  const monthlyLastRunAt = new Date(startOfUtcMonth(now))
-  const monthlyNextRunAt = new Date(startOfNextUtcMonth(now))
-
-  const schedules: ExportSchedule[] = [
-    {
-      id: 'weekly-executive-summary',
-      name: 'Weekly executive summary',
-      reportSlug: 'executive' as const,
-      cadence: 'weekly' as const,
-      format: 'pdf_summary' as const,
-      owner: account.displayName,
-      recipients: [account.email],
-      lastRunAt: weeklyLastRunAt.toISOString(),
-      nextRunAt: weeklyNextRunAt.toISOString(),
-      status: scheduleStatus,
-      detail: delayed
-        ? 'Waiting for current rollups before the weekly PDF can be finalized.'
-        : `Includes ${overview.totals.acceptedEvents} accepted events across ${overview.totals.trackedProjects} tracked projects.`,
-    },
-    {
-      id: 'monthly-acquisition-digest',
-      name: 'Monthly acquisition digest',
-      reportSlug: 'referrers' as const,
-      cadence: 'monthly' as const,
-      format: 'pdf_summary' as const,
-      owner: account.displayName,
-      recipients: [account.email],
-      lastRunAt: monthlyLastRunAt.toISOString(),
-      nextRunAt: monthlyNextRunAt.toISOString(),
-      status: scheduleStatus,
-      detail: delayed
-        ? 'The referrer digest is queued behind the current rollup lag.'
-        : `Summarizes ${referrersReport.trackedReferrers} tracked referrers and ${referrersReport.searchLedVisits} search-led visits.`,
-    },
-  ]
-
-  const recentRuns: ExportRun[] = [
-    {
-      id: 'run-weekly-executive-latest',
-      scheduleId: 'weekly-executive-summary',
-      name: 'Weekly executive summary',
-      status: weeklyRunStatus,
-      format: 'pdf_summary' as const,
-      scopeLabel: 'Workspace overview',
-      startedAt: weeklyLastRunAt.toISOString(),
-      completedAt: delayed ? null : addDays(weeklyLastRunAt, 0).toISOString(),
-      rowCount: overview.topProjects.length + overview.topPages.length + overview.topReferrers.length,
-      detail: delayed
-        ? 'Waiting on fresh rollups before PDF generation completes.'
-        : `Completed from the workspace overview range ${overview.range.from} to ${overview.range.to}.`,
-    },
-    {
-      id: 'run-monthly-acquisition-latest',
-      scheduleId: 'monthly-acquisition-digest',
-      name: 'Monthly acquisition digest',
-      status: monthlyRunStatus,
-      format: 'pdf_summary' as const,
-      scopeLabel: 'Referrer report',
-      startedAt: monthlyLastRunAt.toISOString(),
-      completedAt: delayed ? null : monthlyLastRunAt.toISOString(),
-      rowCount: referrersReport.rows.length,
-      detail: delayed
-        ? 'Queued until the current analytics rollups finish.'
-        : `Rendered from ${referrersReport.rows.length} referrer rows.`,
-    },
-    {
-      id: 'run-manual-pages-csv',
-      scheduleId: 'manual',
-      name: 'Manual content export',
-      status: 'succeeded',
-      format: 'csv' as const,
-      scopeLabel: 'Pages report',
-      startedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-      completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000 + 45_000).toISOString(),
-      rowCount: pagesReport.rows.length,
-      detail: `CSV export generated from ${pagesReport.trackedPages} tracked pages.`,
-    },
-  ]
-
   return {
-    generatedAt: now.toISOString(),
+    generatedAt: new Date().toISOString(),
     summary: {
       scheduledExports: schedules.length,
       delayedExports: schedules.filter((schedule) => schedule.status === 'delayed').length,
@@ -467,7 +357,12 @@ export async function buildWorkspaceSettingsResponse(
   account: AuthenticatedAccount,
   now = new Date(),
 ): Promise<WorkspaceSettingsResponse> {
-  const [health, projects] = await Promise.all([store.readHealthSnapshot(), store.listProjectsForAccount(account.accountId)])
+  const [health, projects, access, members] = await Promise.all([
+    store.readHealthSnapshot(),
+    store.listProjectsForAccount(account.accountId),
+    store.getWorkspaceAccess(account.accountId),
+    store.listWorkspaceMembers(account.accountId),
+  ])
   const workspaceProjects = await Promise.all(
     projects.map(async (project): Promise<WorkspaceProjectSetting> => {
       const lastEventAt = await store.getLatestEventAt(account.accountId, project.projectId)
@@ -487,12 +382,14 @@ export async function buildWorkspaceSettingsResponse(
   return {
     generatedAt: now.toISOString(),
     workspace: {
-      id: account.accountId,
-      name: account.displayName,
+      id: access?.workspaceId || account.accountId,
+      name: access?.workspaceName || account.displayName,
       roleModel: 'workspace_scoped',
+      currentRole: access?.member.role || 'viewer',
       defaultRetentionMonths: config.defaultRetentionMonths,
       allowedRetentionMonths: [6, 12, 13],
     },
+    members,
     roles: [
       {
         role: 'viewer',

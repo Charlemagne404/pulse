@@ -248,7 +248,7 @@ The initial shared catalog is:
 
 MVP allows project-specific events when declared in the project tracking plan.
 
-Current examples already implied by the mock product:
+Current examples used by the product surfaces:
 
 - `spec_opened`
 - `contact_request`

@@ -16,6 +16,7 @@ export const isHttpError = (error: unknown): error is HttpError => error instanc
 
 export const badRequest = (message: string) => new HttpError(400, 'invalid_request', message)
 export const unauthorized = (message: string) => new HttpError(401, 'unauthorized', message)
+export const forbidden = (message: string) => new HttpError(403, 'forbidden', message)
 export const conflict = (message: string) => new HttpError(409, 'conflict', message)
 export const payloadTooLarge = (message: string) => new HttpError(413, 'payload_too_large', message)
 export const notFound = (message: string) => new HttpError(404, 'not_found', message)

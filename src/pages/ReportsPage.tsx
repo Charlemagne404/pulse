@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DataStateCard } from '../components/DataStateCard'
 import { ProductShell } from '../components/ProductShell'
 import { reportLibrary } from '../data/content'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchOverviewAnalytics, fetchPagesReport, fetchReferrersReport } from '../lib/analyticsApi'
-import { fetchExports } from '../lib/productApi'
+import { createManualExport, downloadExport, fetchExports, type ExportReportSlug } from '../lib/productApi'
 import {
   formatAnalyticsRangeLabel,
   formatBreakdownShare,
@@ -13,6 +14,11 @@ import {
 } from '../lib/analyticsUi'
 
 export function ReportsPage() {
+  const [exportState, setExportState] = useState<{ slug: ExportReportSlug | null; message: string; working: boolean }>({
+    slug: null,
+    message: '',
+    working: false,
+  })
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     'reports:index',
     async (signal) => {
@@ -26,6 +32,30 @@ export function ReportsPage() {
       return { overview, pagesReport, referrersReport, exports }
     },
   )
+
+  const handleManualExport = async (reportSlug: ExportReportSlug) => {
+    setExportState({ slug: reportSlug, message: '', working: true })
+
+    try {
+      const run = await createManualExport({ reportSlug, format: 'csv' })
+      const artifact = await downloadExport(run.id)
+      const objectUrl = URL.createObjectURL(artifact.blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = artifact.fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+      setExportState({ slug: reportSlug, message: 'CSV downloaded.', working: false })
+    } catch (exportError) {
+      setExportState({
+        slug: reportSlug,
+        message: exportError instanceof Error ? exportError.message : 'The CSV export could not be generated.',
+        working: false,
+      })
+    }
+  }
 
   return (
     <ProductShell
@@ -103,9 +133,25 @@ export function ReportsPage() {
             <Link to={report.to} className="primary-button gold">
               Open Report
             </Link>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={exportState.working}
+              onClick={() => void handleManualExport(report.slug as ExportReportSlug)}
+            >
+              {exportState.working && exportState.slug === report.slug ? 'Preparing CSV…' : 'Download CSV'}
+            </button>
           </article>
         ))}
       </section>
+
+      {exportState.message ? (
+        <DataStateCard
+          title={exportState.message === 'CSV downloaded.' ? 'Export ready' : 'Export could not be created'}
+          message={exportState.message}
+          tone={exportState.message === 'CSV downloaded.' ? 'neutral' : 'warning'}
+        />
+      ) : null}
 
       <section className="data-panel page-intro-panel">
         <div>

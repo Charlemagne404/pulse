@@ -110,21 +110,9 @@ The collector rejects:
 
 ## Storage Strategy For This Slice
 
-The initial collector writes accepted events to newline-delimited JSON in a local file sink.
-
-Why this is acceptable right now:
-
-- It proves the intake contract
-- It lets you inspect real collected payloads
-- It keeps the service dependency-light
-- It avoids locking Phase 2 to an early database decision
-
-Why it is not the final architecture:
-
-- Querying is limited
-- Retention enforcement is not automated yet
-- Aggregation jobs do not exist yet
-- Horizontal scaling is not solved
+The collector persists accepted events in SQLite with WAL mode, duplicate protection, daily
+rollups, retention enforcement, rejection records, and health metadata. The original NDJSON file
+sink remains a migration input for older installations.
 
 ## Configuration
 
@@ -135,10 +123,13 @@ The collector supports environment configuration for:
 - Allowed event names
 - Max request body size
 - Max batch size
-- CORS origin
-- File sink path
+- Dashboard CORS origins
+- Public collector CORS origins
+- SQLite database path
+- Export artifact directory
 
-Defaults are intentionally aligned with the current mock projects so the scaffold is usable immediately.
+Defaults are conservative: project and event allowlists are empty until a deployment configures them,
+while local development can opt into the seeded project set used by the test harness.
 
 ## Reliability Improvements
 
@@ -152,10 +143,8 @@ The current collector implementation now includes:
 
 ## Next Steps After This Slice
 
-The next backend-focused steps after collector intake are:
+The next backend-focused steps are:
 
-1. Replace the file sink with a database-backed raw event store.
-2. Add project metadata storage with event allowlists per project.
-3. Add aggregation jobs for page, referrer, device, browser, and session metrics.
-4. Add query APIs for the dashboard and report surfaces.
-5. Add retention enforcement and event deletion jobs.
+1. Add configurable project-level event policies where the product needs them.
+2. Tune indexes and rollup coverage for larger event volumes.
+3. Add browser-level collection and installation smoke coverage.

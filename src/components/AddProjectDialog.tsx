@@ -95,15 +95,18 @@ const toHtmlAttribute = (value: string) =>
 
 const toTemplateLiteral = (value: string) => `\`\n${value.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')}\n\``
 
-const buildPulseRuntimeSnippet = (projectId: string) =>
+const buildPulseRuntimeSnippet = (projectId: string, pulseOrigin: string) =>
   [
     'window.pulse = window.pulse || [];',
+    'const queuePulseCommand = (name, ...args) => {',
+    '  if (Array.isArray(window.pulse)) {',
+    '    window.pulse.push([name, ...args]);',
+    '  } else if (typeof window.pulse?.[name] === \'function\') {',
+    '    window.pulse[name](...args);',
+    '  }',
+    '};',
     '',
-    'pulse.init({',
-    `  projectId: ${toJsStringLiteral(projectId)},`,
-    '  debug: false,',
-    "  consentDefault: 'strict',",
-    '});',
+    `queuePulseCommand('init', { projectId: ${toJsStringLiteral(projectId)}, consentDefault: 'strict', collectUrl: ${toJsStringLiteral(`${pulseOrigin}/v1/collect`)} });`,
     '',
     'window.__pulseRouteState = window.__pulseRouteState || {',
     '  installed: false,',
@@ -119,11 +122,7 @@ const buildPulseRuntimeSnippet = (projectId: string) =>
     '  }',
     '',
     '  pulseRouteState.lastPath = nextPath;',
-    '  pulse.page({',
-    '    path: nextPath,',
-    '    title: document.title,',
-    '    referrer: document.referrer || undefined,',
-    '  });',
+    '  queuePulseCommand(\'page\', { path: nextPath, title: document.title, referrer: document.referrer || undefined });',
     '};',
     '',
     'if (!pulseRouteState.installed) {',
@@ -146,22 +145,23 @@ const buildPulseRuntimeSnippet = (projectId: string) =>
     'sendPulsePageView();',
   ].join('\n')
 
-const buildHtmlInstallSnippet = (projectId: string, siteHost: string) => {
-  const runtimeSnippet = buildPulseRuntimeSnippet(projectId)
+const buildHtmlInstallSnippet = (projectId: string, siteHost: string, pulseOrigin: string) => {
+  const runtimeSnippet = buildPulseRuntimeSnippet(projectId, pulseOrigin)
 
   return `<script
   defer
-  src="https://cdn.pulse.continental.com/pulse.js"
+  src="${toHtmlAttribute(`${pulseOrigin}/pulse.js`)}"
   data-site="${toHtmlAttribute(siteHost)}"
-  data-collect="https://api.pulse.continental.com"
+  data-project="${toHtmlAttribute(projectId)}"
+  data-collect="${toHtmlAttribute(`${pulseOrigin}/v1/collect`)}"
 ></script>
 <script>
 ${runtimeSnippet}
 </script>`
 }
 
-const buildNextJsInstallSnippet = (projectId: string, siteHost: string) => {
-  const runtimeSnippet = toTemplateLiteral(buildPulseRuntimeSnippet(projectId))
+const buildNextJsInstallSnippet = (projectId: string, siteHost: string, pulseOrigin: string) => {
+  const runtimeSnippet = toTemplateLiteral(buildPulseRuntimeSnippet(projectId, pulseOrigin))
 
   return [
     "import Script from 'next/script'",
@@ -174,10 +174,11 @@ const buildNextJsInstallSnippet = (projectId: string, siteHost: string) => {
     '      <body>',
     '        {children}',
     '        <Script',
-    '          src="https://cdn.pulse.continental.com/pulse.js"',
+    `          src="${pulseOrigin}/pulse.js"`,
     '          strategy="afterInteractive"',
     `          data-site="${siteHost}"`,
-    '          data-collect="https://api.pulse.continental.com"',
+    `          data-project="${projectId}"`,
+    `          data-collect="${pulseOrigin}/v1/collect"`,
     '        />',
     '        <Script id="pulse-init" strategy="afterInteractive">',
     '          {pulseInlineScript}',
@@ -189,23 +190,24 @@ const buildNextJsInstallSnippet = (projectId: string, siteHost: string) => {
   ].join('\n')
 }
 
-const buildReactViteInstallSnippet = (projectId: string, siteHost: string) => {
-  const htmlSnippet = buildHtmlInstallSnippet(projectId, siteHost)
+const buildReactViteInstallSnippet = (projectId: string, siteHost: string, pulseOrigin: string) => {
+  const htmlSnippet = buildHtmlInstallSnippet(projectId, siteHost, pulseOrigin)
   return `<!-- /index.html -->\n${htmlSnippet}`
 }
 
-const buildNuxtInstallSnippet = (projectId: string, siteHost: string) => {
-  const runtimeSnippet = toTemplateLiteral(buildPulseRuntimeSnippet(projectId))
+const buildNuxtInstallSnippet = (projectId: string, siteHost: string, pulseOrigin: string) => {
+  const runtimeSnippet = toTemplateLiteral(buildPulseRuntimeSnippet(projectId, pulseOrigin))
 
   return [
     '<script setup lang="ts">',
     'useHead({',
     '  script: [',
     '    {',
-    "      src: 'https://cdn.pulse.continental.com/pulse.js',",
+    `      src: '${pulseOrigin}/pulse.js',`,
     '      defer: true,',
     `      'data-site': '${siteHost}',`,
-    "      'data-collect': 'https://api.pulse.continental.com',",
+    `      'data-project': '${projectId}',`,
+    `      'data-collect': '${pulseOrigin}/v1/collect',`,
     "      tagPosition: 'head',",
     '    },',
     '    {',
@@ -218,14 +220,14 @@ const buildNuxtInstallSnippet = (projectId: string, siteHost: string) => {
   ].join('\n')
 }
 
-const buildFrameworkSnippets = (projectId: string, siteHost: string): FrameworkSnippet[] => [
+const buildFrameworkSnippets = (projectId: string, siteHost: string, pulseOrigin: string): FrameworkSnippet[] => [
   {
     key: 'html',
     label: 'HTML',
     filePath: 'Shared document head',
     placement: 'Paste both script tags before </head> so Pulse loads on every page.',
     summary: 'Best for plain websites, static exports, and server-rendered HTML templates.',
-    code: buildHtmlInstallSnippet(projectId, siteHost),
+    code: buildHtmlInstallSnippet(projectId, siteHost, pulseOrigin),
   },
   {
     key: 'nextjs',
@@ -233,7 +235,7 @@ const buildFrameworkSnippets = (projectId: string, siteHost: string): FrameworkS
     filePath: 'app/layout.tsx',
     placement: 'Add the scripts once in the root layout so they stay active across route changes.',
     summary: 'Best for App Router projects that need one install point and client-side navigation tracking.',
-    code: buildNextJsInstallSnippet(projectId, siteHost),
+    code: buildNextJsInstallSnippet(projectId, siteHost, pulseOrigin),
   },
   {
     key: 'react',
@@ -241,7 +243,7 @@ const buildFrameworkSnippets = (projectId: string, siteHost: string): FrameworkS
     filePath: '/index.html',
     placement: 'Paste the snippet in the app shell HTML file so it loads before the React bundle.',
     summary: 'Best for React, Vite, and other SPA builds that still ship a shared index.html.',
-    code: buildReactViteInstallSnippet(projectId, siteHost),
+    code: buildReactViteInstallSnippet(projectId, siteHost, pulseOrigin),
   },
   {
     key: 'nuxt',
@@ -249,7 +251,7 @@ const buildFrameworkSnippets = (projectId: string, siteHost: string): FrameworkS
     filePath: 'app.vue',
     placement: 'Install once with useHead so Nuxt injects the scripts into the shared head.',
     summary: 'Best for Nuxt apps that want one shared install path without touching raw HTML.',
-    code: buildNuxtInstallSnippet(projectId, siteHost),
+    code: buildNuxtInstallSnippet(projectId, siteHost, pulseOrigin),
   },
 ]
 
@@ -308,7 +310,8 @@ export function AddProjectDialog({ isOpen, onClose, onProjectCreated }: AddProje
   const autoProjectId = slugifyProjectId(projectName)
   const projectId = autoProjectId || 'your-website'
   const siteHost = resolveSiteHost(form.domain, projectId)
-  const frameworkSnippets = buildFrameworkSnippets(projectId, siteHost)
+  const pulseOrigin = (import.meta.env.VITE_PULSE_API_BASE_URL || window.location.origin).replace(/\/+$/, '')
+  const frameworkSnippets = buildFrameworkSnippets(projectId, siteHost, pulseOrigin)
   const activeSnippet = frameworkSnippets.find((snippet) => snippet.key === activeFramework) ?? frameworkSnippets[0]
   const creationFingerprint = JSON.stringify({
     projectName,

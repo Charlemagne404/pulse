@@ -142,9 +142,10 @@ The current docs imply this contract:
 ```html
 <script
   defer
-  src="https://cdn.pulse.continental.com/pulse.js"
+  src="https://pulse.continental-hub.com/pulse.js"
   data-site="continental.com"
-  data-collect="https://api.pulse.continental.com"
+  data-project="aegis"
+  data-collect="https://pulse.continental-hub.com/v1/collect"
 ></script>
 ```
 
@@ -155,7 +156,7 @@ window.pulse = window.pulse || [];
 
 pulse.init({
   projectId: 'aegis',
-  debug: false,
+  consentDefault: 'strict',
 });
 ```
 
@@ -465,7 +466,7 @@ Current interpretation from the site:
 - Retention is a user-visible product setting, not an internal-only backend setting
 
 Resolved decision:
-Workspace owners may configure project retention within product-defined limits. The initial product-defined maximum is 13 months, matching the current mock settings. Editors may view retention but not change it.
+Workspace owners may configure project retention within product-defined limits. The current product-defined maximum is 13 months. Editors may view retention but not change it.
 
 ## Alerting Requirements
 

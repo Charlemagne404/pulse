@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,12 +14,14 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start:server": "npm run build:server && node server/dist/server.js",
-    "test:server": "npm run build:server && node --test server/dist/**/*.test.js"
+    "test:server": "npm run build:server && node --test server/dist/**/*.test.js",
+    "test:sdk": "node --test sdk/pulse.test.mjs",
+    "test": "npm run test:server && npm run test:sdk"
   },
   "dependencies": {
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-router-dom": "^7.15.1"
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

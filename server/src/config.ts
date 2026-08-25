@@ -36,24 +36,34 @@ const parseRetentionMonths = (value: string | undefined, fallback: RetentionMont
 export const loadConfig = (): CollectorConfig => {
   const databasePath = resolve(process.env.PULSE_DB_PATH || 'server/data/pulse.sqlite')
   const legacySinkPath = resolve(process.env.PULSE_EVENT_LOG_PATH || 'server/data/events.ndjson')
+  const exportDirectory = resolve(process.env.PULSE_EXPORT_DIR || 'server/data/exports')
   const defaultRetentionMonths = parseRetentionMonths(process.env.PULSE_DEFAULT_RETENTION_MONTHS, 13)
 
   mkdirSync(dirname(databasePath), { recursive: true })
   mkdirSync(dirname(legacySinkPath), { recursive: true })
+  mkdirSync(exportDirectory, { recursive: true })
+
+  const corsOrigin = process.env.PULSE_CORS_ORIGIN || '*'
+  const corsOrigins = new Set(parseList(process.env.PULSE_CORS_ORIGINS || corsOrigin, ['*']))
+  const collectorCorsOrigins = new Set(parseList(process.env.PULSE_COLLECTOR_CORS_ORIGINS || '*', ['*']))
 
   return {
     host: process.env.PULSE_HOST || '127.0.0.1',
     port: parseInteger(process.env.PULSE_PORT, 8789),
     authApiBaseUrl: (process.env.PULSE_AUTH_API_BASE_URL || 'https://auth.continental-hub.com').replace(/\/+$/, ''),
-    corsOrigin: process.env.PULSE_CORS_ORIGIN || '*',
+    corsOrigin,
+    corsOrigins,
+    collectorCorsOrigins,
     maxBatchSize: parseInteger(process.env.PULSE_MAX_BATCH_SIZE, 25),
     maxBodyBytes: parseInteger(process.env.PULSE_MAX_BODY_BYTES, 262_144),
     rateLimitWindowMs: parseInteger(process.env.PULSE_RATE_LIMIT_WINDOW_MS, 60_000),
     rateLimitMaxRequests: parseInteger(process.env.PULSE_RATE_LIMIT_MAX_REQUESTS, 120),
     databasePath,
     legacySinkPath,
+    exportDirectory,
     rollupIntervalMs: parseInteger(process.env.PULSE_ROLLUP_INTERVAL_MS, 15_000),
     retentionIntervalMs: parseInteger(process.env.PULSE_RETENTION_INTERVAL_MS, 3_600_000),
+    exportIntervalMs: parseInteger(process.env.PULSE_EXPORT_INTERVAL_MS, 60_000),
     defaultRetentionMonths,
     allowedProjectIds: new Set(parseList(process.env.PULSE_PROJECT_IDS, DEFAULT_PROJECT_IDS)),
     allowedEventNames: new Set(parseList(process.env.PULSE_ALLOWED_EVENTS, DEFAULT_ALLOWED_EVENTS)),

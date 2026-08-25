@@ -3,6 +3,8 @@ export type ConsentMode = 'strict' | 'standard'
 export type DeviceType = 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown'
 export type RetentionMonths = 6 | 12 | 13
 export type Scalar = string | number | boolean | null
+export type WorkspaceRole = 'viewer' | 'editor' | 'owner'
+export type WorkspaceMemberStatus = 'active' | 'invited'
 
 export interface AuthenticatedAccount {
   accountId: string
@@ -92,14 +94,18 @@ export interface CollectorConfig {
   port: number
   authApiBaseUrl: string
   corsOrigin: string
+  corsOrigins: Set<string>
+  collectorCorsOrigins: Set<string>
   maxBatchSize: number
   maxBodyBytes: number
   rateLimitWindowMs: number
   rateLimitMaxRequests: number
   databasePath: string
   legacySinkPath: string
+  exportDirectory: string
   rollupIntervalMs: number
   retentionIntervalMs: number
+  exportIntervalMs: number
   defaultRetentionMonths: RetentionMonths
   allowedProjectIds: Set<string>
   allowedEventNames: Set<string>
@@ -355,7 +361,7 @@ export interface AlertsResponse {
 }
 
 export type ExportScheduleStatus = 'ok' | 'delayed'
-export type ExportRunStatus = 'succeeded' | 'delayed' | 'pending'
+export type ExportRunStatus = 'succeeded' | 'delayed' | 'pending' | 'failed'
 
 export interface ExportSchedule {
   id: string
@@ -365,7 +371,7 @@ export interface ExportSchedule {
   format: 'pdf_summary'
   owner: string
   recipients: string[]
-  lastRunAt: string
+  lastRunAt: string | null
   nextRunAt: string
   status: ExportScheduleStatus
   detail: string
@@ -382,6 +388,7 @@ export interface ExportRun {
   completedAt: string | null
   rowCount: number
   detail: string
+  downloadUrl?: string
 }
 
 export interface ExportsResponse {
@@ -396,10 +403,39 @@ export interface ExportsResponse {
   recentRuns: ExportRun[]
 }
 
+export interface CreateExportRequestBody {
+  reportSlug?: unknown
+  format?: unknown
+  projectId?: unknown
+  from?: unknown
+  to?: unknown
+  granularity?: unknown
+}
+
+export interface CreateExportRequest {
+  reportSlug: 'executive' | 'pages' | 'referrers'
+  format: 'csv' | 'pdf_summary'
+  projectId?: string
+  from?: string
+  to?: string
+  granularity?: AnalyticsGranularity
+}
+
 export interface WorkspaceRoleDefinition {
-  role: 'viewer' | 'editor' | 'owner'
+  role: WorkspaceRole
   can: string[]
   cannot: string[]
+}
+
+export interface WorkspaceMember {
+  id: number
+  accountId: string | null
+  email: string
+  displayName: string
+  role: WorkspaceRole
+  status: WorkspaceMemberStatus
+  createdAt: string
+  updatedAt: string
 }
 
 export interface WorkspaceProjectSetting {
@@ -416,9 +452,11 @@ export interface WorkspaceSettingsResponse {
     id: string
     name: string
     roleModel: 'workspace_scoped'
+    currentRole: WorkspaceRole
     defaultRetentionMonths: RetentionMonths
     allowedRetentionMonths: RetentionMonths[]
   }
+  members: WorkspaceMember[]
   roles: WorkspaceRoleDefinition[]
   projects: WorkspaceProjectSetting[]
   controls: Array<{

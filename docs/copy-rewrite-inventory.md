@@ -112,7 +112,7 @@ Rewrite direction:
 
 Current issue:
 
-- The mock project model still exposes a `team` field, which reads like an internal organizational dependency
+- The project model still exposes a `team` field, which reads like an internal organizational dependency
 
 References:
 
@@ -156,6 +156,6 @@ These areas are mostly compatible with the new direction:
 ## Recommended Order For Later Copy Pass
 
 1. Replace the `/support` page and all support CTAs.
-2. Rename `team` and internal-owner labels in mock data and project cards.
+2. Rename `team` and internal-owner labels in legacy marketing data and project cards.
 3. Rewrite settings and alerts copy to remove governance-team language.
 4. Rewrite status and legal/support-adjacent copy to avoid implying a staffed organization.

@@ -108,19 +108,19 @@ Important current behaviors:
 
 ## Known Limits
 
-- Query speed scales poorly with raw event volume
-- Only the current file sink is queried
+- Query speed will need further indexing and rollup work as raw event volume grows
+- SQLite is the current source of truth, with daily rollups used for read-side aggregation
 - Referrer ownership and search-host lists are static in code
-- No caching layer exists yet
-- No pagination exists for recent events
+- No distributed caching layer exists yet
+- Recent events use cursor pagination; larger installations may need additional read-model tuning
 
 Note:
-The file sink is now parsed through a cached snapshot with malformed-line and duplicate-event tolerance, but it is still not a substitute for a database-backed read model.
+The original NDJSON sink is retained only as a migration input. New events are stored in SQLite,
+with rollups, retention enforcement, rejection records, and health metadata maintained by the collector.
 
 ## Next Steps After Phase 3
 
-1. Move raw events into a database-backed store.
-2. Introduce rollup generation for day/week/month query speed.
-3. Add retention enforcement jobs.
-4. Add alert-evaluation jobs.
-5. Replace frontend mock data with live API reads.
+1. Tune SQLite indexes and rollup coverage for larger event volumes.
+2. Add configurable retention and alert-management APIs.
+3. Add browser-level installation and dashboard smoke coverage.
+4. Evaluate a queue or separate read model only when measured workload requires it.

@@ -4,7 +4,7 @@ This document is the high-level roadmap for Pulse. It explains what each phase i
 
 ## Summary
 
-Pulse has been broken into phases so the product can move from visual mockup to usable self-serve analytics product in a controlled way.
+Pulse has been broken into phases so the product can move from early visual prototype to usable self-serve analytics product in a controlled way.
 
 The phases are:
 
@@ -34,7 +34,7 @@ It covers:
 
 ### Why it exists
 
-Before building backend or frontend behavior, Pulse needed a real contract instead of marketing copy and mock UI assumptions.
+Before building backend or frontend behavior, Pulse needed a real contract instead of marketing copy and UI assumptions.
 
 ### Outputs
 
@@ -106,7 +106,7 @@ Once events can be collected, the next step is making them queryable in shapes t
 
 ### Status
 
-- Implemented as a working read-side layer over the raw file sink
+- Implemented as a working SQLite-backed read-side layer with daily rollups
 - Good enough for integration and validation
 - Not yet the final performance architecture
 
@@ -116,28 +116,26 @@ Once events can be collected, the next step is making them queryable in shapes t
 
 Phase 4 connects the current frontend to the live backend.
 
-It should cover:
+It covers:
 
-- Replacing mock dashboard data with API reads
-- Replacing mock project pages with API reads
-- Replacing mock report pages with API reads
+- Dashboard, project, and report pages reading the backend APIs
 - Loading states, empty states, and error states
 - API client and response mapping in the frontend
 
 ### Why it exists
 
-At this point the backend can collect and query data, but the product UI is still mostly rendering mock data.
+At this point the backend can collect and query data, and the product UI has live reads with explicit loading, empty, and error states. Static marketing content remains separate from analytics data.
 
 ### Expected outputs
 
 - Frontend API client utilities
 - Live dashboard and project pages
 - Live report pages
-- Reduced or removed dependence on `src/data/mockData.ts`
+- Marketing-only content remains in `src/data/mockData.ts`; product analytics no longer depends on it
 
 ### Status
 
-- Not started
+- Implemented for the current product surfaces
 
 ## Phase 5
 
@@ -167,7 +165,7 @@ Phases 2 and 3 prove the product behavior, but they are not efficient enough for
 
 ### Status
 
-- Complete
+- Implemented locally with SQLite rollups, retention enforcement, and scheduled export execution
 
 ## Phase 6
 
@@ -183,7 +181,7 @@ It should cover:
 - Production deployment hardening
 - Observability and failure monitoring
 - Security and abuse controls
-- Final copy rewrite from mock/staffed language to self-serve product language
+- Final copy rewrite from legacy/staffed language to self-serve product language
 
 ### Why it exists
 
@@ -199,7 +197,7 @@ Pulse needs more than collection and dashboard reads to become a complete produc
 
 ### Status
 
-- Complete
+- Implemented locally; live deployment and external-provider verification remain operational gates
 
 ## Current Position
 
@@ -208,14 +206,18 @@ Pulse now has an end-to-end product path in place:
 - The collector accepts validated events into SQLite-backed storage
 - Rollups, retention enforcement, health snapshots, and recent-event pagination run on the backend
 - The frontend reads live analytics on the dashboard, projects, events, reports, alerts, and workspace-settings surfaces
-- Alerts, export visibility, and workspace operations are exposed through stable product APIs
-- The remaining work is iterative product expansion rather than finishing the initial functional surface set
+- The self-hosted browser SDK supports consent-aware page views and custom events
+- Exports are materialized as persisted CSV/PDF artifacts with scoped downloads
+- Workspace membership and viewer/editor/owner authorization are enforced by the backend
+- Deployment includes hardened service units, scheduled backups, and a local health timer
+- The remaining work is iterative product expansion plus live deployment/provider/browser verification
 
 ## Recommended Next Move
 
 The next milestone is no longer basic frontend completion. The product can now move into follow-on work such as:
 
 - richer filtering and drill-down controls on live analytics surfaces
-- authentication and authorization hardening beyond the current shell
-- real export job execution instead of visibility-only export state
-- deployment and observability improvements around the live collector
+- retention and alert configuration APIs
+- browser-level install and dashboard smoke coverage
+- external Continental ID and production deployment verification
+- performance work for larger event volumes and export queues

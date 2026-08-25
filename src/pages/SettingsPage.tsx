@@ -91,6 +91,27 @@ export function SettingsPage() {
       {data ? (
         <section className="data-panel">
           <div className="panel-head">
+            <h2>Workspace membership</h2>
+            <span className="country-pill">You are {data.workspace.currentRole}</span>
+          </div>
+
+          <div className="mini-table-list">
+            {data.members.map((member) => (
+              <article key={member.id} className="mini-table-row report-detail-row">
+                <span className="country-pill">{member.status === 'active' ? member.role : 'Invited'}</span>
+                <div>
+                  <strong>{member.displayName}</strong>
+                  <p>{member.email} · {member.status === 'active' ? 'Active member' : 'Invitation pending'}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {data ? (
+        <section className="data-panel">
+          <div className="panel-head">
             <h2>Project retention and activity</h2>
             <Link to="/projects" className="panel-link">
               Open Projects

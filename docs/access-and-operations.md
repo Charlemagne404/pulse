@@ -108,7 +108,7 @@ Rules:
 
 ## Authentication
 
-The current mock app uses Continental ID, but the product model should treat authentication as an interchangeable identity provider layer.
+The current app integrates Continental ID through an authentication boundary, while the product model treats the identity provider as an interchangeable service layer.
 
 Requirements:
 
@@ -174,7 +174,7 @@ MVP expectations:
 
 ## Copy Rewrite Guidance
 
-The current mock site contains wording that implies a staffed platform organization. Production copy should remove or rewrite phrases such as:
+The current site contains wording that implies a staffed platform organization. Production copy should remove or rewrite phrases such as:
 
 - Support desk
 - Governance help
