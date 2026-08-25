@@ -67,12 +67,19 @@ const parseAuthResponse = async (response: Response) => {
 export const createContinentalAuthResolver = (config: CollectorConfig): AuthResolver => ({
   async authenticate(request: IncomingMessage) {
     const accessToken = parseBearerToken(request)
-    const response = await fetch(`${config.authApiBaseUrl}/api/auth/me`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        accept: 'application/json',
-      },
-    })
+    let response: Response
+
+    try {
+      response = await fetch(`${config.authApiBaseUrl}/api/auth/me`, {
+        signal: AbortSignal.timeout(8_000),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          accept: 'application/json',
+        },
+      })
+    } catch {
+      throw unauthorized('Pulse could not reach Continental ID to verify this session.')
+    }
     const payload = await parseAuthResponse(response)
 
     if (!response.ok) {

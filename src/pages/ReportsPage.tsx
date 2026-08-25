@@ -12,6 +12,9 @@ import {
   formatCount,
   formatTimestampLabel,
 } from '../lib/analyticsUi'
+import { buildAnalyticsRangePresets } from '../lib/demoDates'
+
+const defaultAnalyticsRange = buildAnalyticsRangePresets()[0]
 
 export function ReportsPage() {
   const [exportState, setExportState] = useState<{ slug: ExportReportSlug | null; message: string; working: boolean }>({
@@ -22,10 +25,15 @@ export function ReportsPage() {
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     'reports:index',
     async (signal) => {
+      const range = {
+        from: defaultAnalyticsRange.from,
+        to: defaultAnalyticsRange.to,
+        granularity: 'day' as const,
+      }
       const [overview, pagesReport, referrersReport, exports] = await Promise.all([
-        fetchOverviewAnalytics({}, signal),
-        fetchPagesReport({}, signal),
-        fetchReferrersReport({}, signal),
+        fetchOverviewAnalytics(range, signal),
+        fetchPagesReport(range, signal),
+        fetchReferrersReport(range, signal),
         fetchExports(signal),
       ])
 
@@ -37,7 +45,13 @@ export function ReportsPage() {
     setExportState({ slug: reportSlug, message: '', working: true })
 
     try {
-      const run = await createManualExport({ reportSlug, format: 'csv' })
+      const run = await createManualExport({
+        reportSlug,
+        format: 'csv',
+        from: defaultAnalyticsRange.from,
+        to: defaultAnalyticsRange.to,
+        granularity: 'day',
+      })
       const artifact = await downloadExport(run.id)
       const objectUrl = URL.createObjectURL(artifact.blob)
       const link = document.createElement('a')

@@ -5,15 +5,15 @@ import vm from 'node:vm'
 
 const sdkSource = await readFile(new URL('../public/pulse.js', import.meta.url), 'utf8')
 
-const createStorage = () => {
-  const values = new Map()
+const createStorage = (initialValues = {}) => {
+  const values = new Map(Object.entries(initialValues))
   return {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, String(value)),
   }
 }
 
-const createBrowser = (queuedCommands = []) => {
+const createBrowser = (queuedCommands = [], storage = {}) => {
   const requests = []
   const browser = {
     pulse: queuedCommands,
@@ -29,8 +29,8 @@ const createBrowser = (queuedCommands = []) => {
       userAgent: 'Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36',
       language: 'en-US',
     },
-    sessionStorage: createStorage(),
-    localStorage: createStorage(),
+    sessionStorage: createStorage(storage.sessionStorage),
+    localStorage: createStorage(storage.localStorage),
     crypto: { randomUUID: () => '00000000-0000-4000-8000-000000000001' },
     fetch: async (url, options) => {
       requests.push({ url, options })
@@ -93,4 +93,32 @@ test('browser SDK stops collection when consent is denied', async () => {
   await new Promise((resolve) => setImmediate(resolve))
 
   assert.equal(requests.length, 0)
+})
+
+test('browser SDK expires inactive sessions and rotates visitor keys after one day', async () => {
+  const oldSession = 'session_old_0000000000000000000000000000000000000000000000000000000000000000'
+  const oldVisitor = 'visitor_old_0000000000000000000000000000000000000000000000000000000000000000'
+  const oldSessionTime = Date.now() - (31 * 60 * 1000)
+  const oldVisitorTime = Date.now() - (25 * 60 * 60 * 1000)
+  const { browser, requests } = createBrowser(
+    [['init', { projectId: 'demo-site', consentDefault: 'standard' }]],
+    {
+      sessionStorage: {
+        'pulse.sessionId.demo-site': oldSession,
+        'pulse.sessionId.demo-site.createdAt': String(oldSessionTime),
+        'pulse.sessionId.demo-site.lastActivityAt': String(oldSessionTime),
+      },
+      localStorage: {
+        'pulse.visitorKey.demo-site': oldVisitor,
+        'pulse.visitorKey.demo-site.createdAt': String(oldVisitorTime),
+      },
+    },
+  )
+
+  browser.pulse.track('button_click', { button: 'learn_more' })
+  await new Promise((resolve) => setImmediate(resolve))
+
+  const event = readRequestEvent(requests[0])
+  assert.notEqual(event.identity.sessionId, oldSession)
+  assert.notEqual(event.identity.visitorKey, oldVisitor)
 })

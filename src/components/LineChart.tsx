@@ -67,8 +67,8 @@ export function LineChart({ data, compact = false, height = 240, hideLabels = fa
           />
         ))}
 
-        <path d={areaPath} fill={`url(#${gradientId})`} />
-        <path d={linePath} className="chart-line-path" />
+        <path d={areaPath} className="chart-area-path" fill={`url(#${gradientId})`} />
+        <path d={linePath} pathLength={1} className="chart-line-path" />
 
         {points.map((point, index) =>
           !point.synthetic && (index === points.length - 1 || (!compact && index % interpolationStep === 0)) ? (

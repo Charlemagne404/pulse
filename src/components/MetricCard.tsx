@@ -28,7 +28,7 @@ function renderSparkline(points: number[]) {
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="metric-sparkline" aria-hidden="true">
-      <path d={path} />
+      <path d={path} pathLength={1} />
     </svg>
   )
 }

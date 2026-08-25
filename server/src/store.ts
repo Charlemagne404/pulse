@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { conflict } from './errors.js'
+import { badRequest, conflict } from './errors.js'
 import { buildCsvDocument, buildPdfSummaryDocument, type ExportSection } from './export.js'
 import { getProjectMetadata } from './projects.js'
 import type {
@@ -36,9 +36,24 @@ import type {
 } from './types.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+const SESSION_INACTIVITY_MS = 30 * 60 * 1000
+const SESSION_MAX_LIFETIME_MS = 24 * 60 * 60 * 1000
 const DIRECT_LABEL = 'direct / none'
 const OWNED_HOSTS = new Set(['continental.com', 'www.continental.com'])
-const SEARCH_HOSTS = new Set(['google.com', 'www.google.com', 'bing.com', 'www.bing.com'])
+const SEARCH_HOSTS = new Set([
+  'google.com',
+  'www.google.com',
+  'bing.com',
+  'www.bing.com',
+  'duckduckgo.com',
+  'www.duckduckgo.com',
+  'yahoo.com',
+  'search.yahoo.com',
+  'baidu.com',
+  'www.baidu.com',
+  'yandex.ru',
+  'www.yandex.ru',
+])
 
 interface SessionSummary {
   pageViews: number
@@ -212,6 +227,8 @@ const percentage = (part: number, total: number) => (total > 0 ? round((part / t
 
 const normalizeReferrer = (value: string | undefined) => (value ? value.toLowerCase() : DIRECT_LABEL)
 
+const escapeLikePrefix = (value: string) => value.replace(/[\\%_]/g, '\\$&')
+
 const compareByValueDesc = (a: AnalyticsBreakdownRow, b: AnalyticsBreakdownRow) => b.value - a.value || a.label.localeCompare(b.label)
 
 const summarizeBreakdown = (counts: Map<string, number>, total: number, limit = 5) =>
@@ -225,16 +242,30 @@ const summarizeBreakdown = (counts: Map<string, number>, total: number, limit = 
     .sort(compareByValueDesc)
     .slice(0, limit)
 
-const formatBucketLabel = (date: Date, granularity: AnalyticsGranularity) => {
+const formatBucketLabel = (date: Date, granularity: AnalyticsGranularity, includeYear = false) => {
   if (granularity === 'month') {
-    return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(date)
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      ...(includeYear ? { year: 'numeric' as const } : {}),
+      timeZone: 'UTC',
+    }).format(date)
   }
 
   if (granularity === 'week') {
-    return `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date)} wk`
+    return `${new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      ...(includeYear ? { year: 'numeric' as const } : {}),
+      timeZone: 'UTC',
+    }).format(date)} wk`
   }
 
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date)
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' as const } : {}),
+    timeZone: 'UTC',
+  }).format(date)
 }
 
 const startOfUtcDay = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
@@ -278,65 +309,127 @@ const summarizeSessions = (events: StoredPulseEvent[]) => {
       continue
     }
 
-    const group = sessions.get(sessionId)
+    const sessionKey = `${event.projectId}\u0000${sessionId}`
+    const group = sessions.get(sessionKey)
     if (group) {
       group.push(event)
     } else {
-      sessions.set(sessionId, [event])
+      sessions.set(sessionKey, [event])
     }
   }
 
   const summaries = new Map<string, SessionSummary>()
 
-  for (const [sessionId, sessionEvents] of sessions.entries()) {
+  for (const [sessionKey, sessionEvents] of sessions.entries()) {
     const sorted = [...sessionEvents].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt))
-    let pageViews = 0
-    let engagementEvents = 0
-    let durationSeconds = 0
-    const pages: string[] = []
+    let segment: StoredPulseEvent[] = []
+    let segmentStartedAtMs = 0
+    let previousOccurredAtMs = 0
+    let segmentIndex = 0
 
-    for (let index = 0; index < sorted.length; index += 1) {
-      const current = sorted[index]
-      if (!current) {
-        continue
+    const flushSegment = () => {
+      if (!segment.length) {
+        return
       }
 
-      if (current.eventName === 'page_view') {
-        pageViews += 1
-        pages.push(current.page.path)
-      } else {
-        engagementEvents += 1
+      let pageViews = 0
+      let engagementEvents = 0
+      let durationSeconds = 0
+      const pages: string[] = []
+      let firstPageView: StoredPulseEvent | undefined
+
+      for (let index = 0; index < segment.length; index += 1) {
+        const current = segment[index]
+        if (!current) {
+          continue
+        }
+
+        if (current.eventName === 'page_view') {
+          pageViews += 1
+          pages.push(current.page.path)
+          firstPageView ||= current
+        } else {
+          engagementEvents += 1
+        }
+
+        const next = segment[index + 1]
+        if (!next) {
+          continue
+        }
+
+        const deltaSeconds = Math.max(0, Math.floor((Date.parse(next.occurredAt) - Date.parse(current.occurredAt)) / 1000))
+        durationSeconds += Math.min(deltaSeconds, SESSION_INACTIVITY_MS / 1000)
       }
 
-      const next = sorted[index + 1]
-      if (!next) {
-        continue
+      // A custom event without a page view is not a visit and should not
+      // affect bounce, engagement time, landing pages, or referrer totals.
+      if (pageViews > 0) {
+        summaries.set(`${sessionKey}\u0000${segmentIndex}`, {
+          pageViews,
+          engagementEvents,
+          durationSeconds,
+          pages,
+          entryReferrer: normalizeReferrer(firstPageView?.page.referrer),
+        })
       }
 
-      const deltaSeconds = Math.max(0, Math.floor((Date.parse(next.occurredAt) - Date.parse(current.occurredAt)) / 1000))
-      durationSeconds += Math.min(deltaSeconds, 30 * 60)
+      segment = []
+      segmentIndex += 1
     }
 
-    summaries.set(sessionId, {
-      pageViews,
-      engagementEvents,
-      durationSeconds,
-      pages,
-      entryReferrer: normalizeReferrer(sorted[0]?.page.referrer),
-    })
+    for (const event of sorted) {
+      const occurredAtMs = Date.parse(event.occurredAt)
+      const startsNewSession = segment.length > 0 && (
+        occurredAtMs - previousOccurredAtMs >= SESSION_INACTIVITY_MS
+        || occurredAtMs - segmentStartedAtMs >= SESSION_MAX_LIFETIME_MS
+      )
+
+      if (startsNewSession) {
+        flushSegment()
+      }
+
+      if (!segment.length) {
+        segmentStartedAtMs = occurredAtMs
+      }
+
+      segment.push(event)
+      previousOccurredAtMs = occurredAtMs
+    }
+
+    flushSegment()
   }
 
   return summaries
 }
 
-const buildSeries = (dayCounts: Map<number, number>, granularity: AnalyticsGranularity) =>
-  Array.from(dayCounts.entries())
+const nextSeriesBucket = (bucketMs: number, granularity: AnalyticsGranularity) => {
+  if (granularity === 'month') {
+    return nextMonthStartUtc(new Date(bucketMs)).getTime()
+  }
+
+  return bucketMs + (granularity === 'week' ? 7 : 1) * MS_PER_DAY
+}
+
+const buildSeries = (dayCounts: Map<number, number>, granularity: AnalyticsGranularity, fromMs: number, toMs: number) => {
+  const buckets = Array.from(dayCounts.entries())
     .sort(([a], [b]) => a - b)
-    .reduce((buckets, [dayStartMs, value]) => {
+    .reduce((result, [dayStartMs, value]) => {
       const seriesBucket = bucketStart(new Date(dayStartMs), granularity)
-      buckets.set(seriesBucket, (buckets.get(seriesBucket) || 0) + value)
-      return buckets
+      result.set(seriesBucket, (result.get(seriesBucket) || 0) + value)
+      return result
     }, new Map<number, number>())
+
+  const firstBucket = bucketStart(new Date(fromMs), granularity)
+  const lastBucket = bucketStart(new Date(toMs), granularity)
+
+  for (let bucketMs = firstBucket; bucketMs <= lastBucket; bucketMs = nextSeriesBucket(bucketMs, granularity)) {
+    if (!buckets.has(bucketMs)) {
+      buckets.set(bucketMs, 0)
+    }
+  }
+
+  return buckets
+}
 
 const resolveRange = (
   bounds: TimestampBounds,
@@ -354,7 +447,7 @@ const resolveRange = (
   const to = toRaw ? new Date(toRaw) : fallbackEnd
 
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
-    throw new Error('Invalid analytics range. Use ISO dates where from <= to.')
+    throw badRequest('Invalid analytics range. Use ISO dates where from <= to.')
   }
 
   return {
@@ -394,7 +487,7 @@ const decodeCursor = (value: string | null | undefined): RecentEventsCursor | nu
 
     return parsed
   } catch {
-    throw new Error('Invalid cursor.')
+    throw badRequest('Invalid cursor.')
   }
 }
 
@@ -418,7 +511,7 @@ const decodeRejectionsCursor = (value: string | null | undefined): RecentRejecti
 
     return parsed
   } catch {
-    throw new Error('Invalid cursor.')
+    throw badRequest('Invalid cursor.')
   }
 }
 
@@ -1060,13 +1153,13 @@ export class SqliteEventStore {
     const topProjectsPageViews = this.getPageViewBreakdownSync(workspaceId, 'project_id', resolved)
     const topProjectsUniqueVisitors = this.getDistinctCountsByProjectSync(workspaceId, resolved)
     const totalProjectPageViews = Array.from(topProjectsPageViews.values()).reduce((sum, value) => sum + value, 0)
+    const projectNames = this.getProjectNamesSync(workspaceId)
 
     const topProjects = Array.from(topProjectsPageViews.entries())
       .map(([projectId, pageViews]) => {
-        const project = getProjectMetadata(projectId)
         return {
           projectId,
-          projectName: project.name,
+          projectName: projectNames.get(projectId) || getProjectMetadata(projectId).name,
           pageViews,
           uniqueVisitors: topProjectsUniqueVisitors.get(projectId) || 0,
           share: percentage(pageViews, totalProjectPageViews),
@@ -1098,10 +1191,14 @@ export class SqliteEventStore {
           unit: 'seconds' as const,
         },
       ],
-      series: Array.from(buildSeries(dayCounts, resolved.range.granularity).entries())
+      series: Array.from(buildSeries(dayCounts, resolved.range.granularity, resolved.fromMs, resolved.toMs).entries())
         .sort(([a], [b]) => a - b)
         .map(([bucketMs, value]) => ({
-          label: formatBucketLabel(new Date(bucketMs), resolved.range.granularity),
+          label: formatBucketLabel(
+            new Date(bucketMs),
+            resolved.range.granularity,
+            new Date(resolved.fromMs).getUTCFullYear() !== new Date(resolved.toMs).getUTCFullYear(),
+          ),
           value,
         })),
       topProjects,
@@ -1134,7 +1231,7 @@ export class SqliteEventStore {
       range: resolved.range,
       project: {
         projectId,
-        projectName: getProjectMetadata(projectId).name,
+        projectName: this.getProjectNameSync(projectId, workspaceId),
       },
       metrics: [
         { key: 'page_views', label: 'Page Views', value: pageViewCount, unit: 'count' as const },
@@ -1165,10 +1262,14 @@ export class SqliteEventStore {
           unit: 'seconds' as const,
         },
       ],
-      series: Array.from(buildSeries(this.getPageViewDayCountsSync(workspaceId, resolved, projectId), resolved.range.granularity).entries())
+      series: Array.from(buildSeries(this.getPageViewDayCountsSync(workspaceId, resolved, projectId), resolved.range.granularity, resolved.fromMs, resolved.toMs).entries())
         .sort(([a], [b]) => a - b)
         .map(([bucketMs, value]) => ({
-          label: formatBucketLabel(new Date(bucketMs), resolved.range.granularity),
+          label: formatBucketLabel(
+            new Date(bucketMs),
+            resolved.range.granularity,
+            new Date(resolved.fromMs).getUTCFullYear() !== new Date(resolved.toMs).getUTCFullYear(),
+          ),
           value,
         })),
       topPages: summarizeBreakdown(this.getPageViewBreakdownSync(workspaceId, 'path', resolved, projectId), pageViewCount),
@@ -1247,13 +1348,14 @@ export class SqliteEventStore {
     const resolved = resolveRange(this.getBoundsSync(workspaceId, projectId), fromRaw, toRaw, granularityRaw)
     const sessionSummaries = summarizeSessions(this.getRangeEventsSync(workspaceId, resolved, projectId))
     const referrerCounts = new Map<string, number>()
+    const ownedHosts = this.getOwnedReferrerHostsSync(workspaceId)
     let ownedVisits = 0
     let searchLedVisits = 0
 
     for (const session of sessionSummaries.values()) {
       referrerCounts.set(session.entryReferrer, (referrerCounts.get(session.entryReferrer) || 0) + 1)
 
-      if (OWNED_HOSTS.has(session.entryReferrer)) {
+      if (ownedHosts.has(session.entryReferrer)) {
         ownedVisits += 1
       }
 
@@ -1352,7 +1454,7 @@ export class SqliteEventStore {
     const nextCursor = rows.length > limit && cursorRow
       ? encodeCursor({
           occurredAtMs: Date.parse(cursorRow.occurredAt),
-          eventId: this.getRecentEventIdSync(workspaceId, cursorRow, resolved, query.projectId),
+          eventId: cursorRow.eventId,
         })
       : null
 
@@ -1737,17 +1839,25 @@ export class SqliteEventStore {
     const sections: ExportSection[] = []
     let rowCount = 0
     let name: string
-    const scopeLabel = request.projectId ? `Project ${request.projectId}` : 'Workspace'
+    const scopeLabel = request.projectId ? `Project ${this.getProjectNameSync(request.projectId, workspaceId)}` : 'Workspace'
 
     if (request.reportSlug === 'executive') {
-      const overview = await this.getOverviewAnalytics(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity)
-      const metrics = overview.metrics.map((metric) => ({ label: metric.label, value: metric.value }))
-      sections.push(
-        { title: 'Metrics', rows: metrics },
-        { title: 'Top projects', rows: overview.topProjects.map((row) => ({ label: row.projectName, value: row.pageViews })) },
-        { title: 'Top pages', rows: overview.topPages.map((row) => ({ label: row.label, value: row.value })) },
-        { title: 'Top referrers', rows: overview.topReferrers.map((row) => ({ label: row.label, value: row.value })) },
-      )
+      if (request.projectId) {
+        const overview = await this.getProjectOverviewAnalytics(account.accountId, request.projectId, reportOptions.from, reportOptions.to, reportOptions.granularity)
+        sections.push(
+          { title: 'Metrics', rows: overview.metrics.map((metric) => ({ label: metric.label, value: metric.value })) },
+          { title: 'Top pages', rows: overview.topPages.map((row) => ({ label: row.label, value: row.value })) },
+          { title: 'Top referrers', rows: overview.topReferrers.map((row) => ({ label: row.label, value: row.value })) },
+        )
+      } else {
+        const overview = await this.getOverviewAnalytics(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity)
+        sections.push(
+          { title: 'Metrics', rows: overview.metrics.map((metric) => ({ label: metric.label, value: metric.value })) },
+          { title: 'Top projects', rows: overview.topProjects.map((row) => ({ label: row.projectName, value: row.pageViews })) },
+          { title: 'Top pages', rows: overview.topPages.map((row) => ({ label: row.label, value: row.value })) },
+          { title: 'Top referrers', rows: overview.topReferrers.map((row) => ({ label: row.label, value: row.value })) },
+        )
+      }
       name = 'Executive overview'
     } else if (request.reportSlug === 'pages') {
       const report = await this.getPagesReport(account.accountId, reportOptions.from, reportOptions.to, reportOptions.granularity, request.projectId)
@@ -1867,7 +1977,7 @@ export class SqliteEventStore {
       return this.maintenanceRunPromise
     }
 
-    this.maintenanceRunPromise = Promise.resolve().then(() => {
+    this.maintenanceRunPromise = this.readyPromise.then(() => {
       this.processDirtyBucketsSync()
 
       if (forceRetention || this.isRetentionDue()) {
@@ -2486,6 +2596,45 @@ export class SqliteEventStore {
     return row ? this.toProjectRecord(row) : null
   }
 
+  private getProjectNameSync(projectId: string, workspaceId?: string) {
+    const row = workspaceId
+      ? this.db
+          .prepare('SELECT project_name FROM registered_projects WHERE workspace_id = ? AND project_id = ?')
+          .get(workspaceId, projectId) as { project_name: string } | undefined
+      : this.db
+          .prepare('SELECT project_name FROM registered_projects WHERE project_id = ?')
+          .get(projectId) as { project_name: string } | undefined
+
+    return row?.project_name || getProjectMetadata(projectId).name
+  }
+
+  private getProjectNamesSync(workspaceId: string) {
+    const rows = this.db
+      .prepare('SELECT project_id, project_name FROM registered_projects WHERE workspace_id = ?')
+      .all(workspaceId) as Array<{ project_id: string; project_name: string }>
+
+    return new Map(rows.map((row) => [row.project_id, row.project_name]))
+  }
+
+  private getOwnedReferrerHostsSync(workspaceId: string) {
+    const hosts = new Set(OWNED_HOSTS)
+    const rows = this.db
+      .prepare('SELECT site_host FROM registered_projects WHERE workspace_id = ?')
+      .all(workspaceId) as Array<{ site_host: string }>
+
+    for (const row of rows) {
+      const host = row.site_host.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0] || ''
+      if (!host) {
+        continue
+      }
+
+      hosts.add(host)
+      hosts.add(host.startsWith('www.') ? host.slice(4) : `www.${host}`)
+    }
+
+    return hosts
+  }
+
   private backfillAccountOwnershipSync(accountId: string, projectIds: string[]) {
     if (projectIds.length === 0) {
       return
@@ -2919,8 +3068,8 @@ export class SqliteEventStore {
     }
 
     if (options.pathPrefix) {
-      sql += ' AND path LIKE ?'
-      params.push(`${options.pathPrefix}%`)
+      sql += " AND path LIKE ? ESCAPE '\\'"
+      params.push(`${escapeLikePrefix(options.pathPrefix)}%`)
     }
 
     if (options.cursor) {
@@ -2959,44 +3108,6 @@ export class SqliteEventStore {
       consentState: row.consent_state,
       consentMode: row.consent_mode,
     }))
-  }
-
-  private getRecentEventIdSync(accountId: string, row: RecentEventRow, resolved: ResolvedRange, projectId?: string) {
-    const params: Array<string | number> = [
-      Date.parse(row.occurredAt),
-      row.eventName,
-      row.projectId,
-      row.path,
-      row.deviceType,
-      row.browserName,
-      row.countryCode,
-      resolved.fromMs,
-      resolved.toMs,
-      accountId,
-    ]
-    let sql = `
-      SELECT event_id
-      FROM raw_events
-      WHERE occurred_at_ms = ?
-        AND event_name = ?
-        AND project_id = ?
-        AND path = ?
-        AND device_type = ?
-        AND browser_name = ?
-        AND country_code = ?
-        AND occurred_at_ms BETWEEN ? AND ?
-        AND account_id = ?
-    `
-
-    if (projectId) {
-      sql += ' AND project_id = ?'
-      params.push(projectId)
-    }
-
-    sql += ' ORDER BY event_id DESC LIMIT 1'
-
-    const result = this.db.prepare(sql).get(...params) as { event_id: string } | undefined
-    return result?.event_id || ''
   }
 
   private getRejectedEventRowsSync(
@@ -3044,8 +3155,8 @@ export class SqliteEventStore {
     }
 
     if (options.pathPrefix) {
-      sql += ' AND path LIKE ?'
-      params.push(`${options.pathPrefix}%`)
+      sql += " AND path LIKE ? ESCAPE '\\'"
+      params.push(`${escapeLikePrefix(options.pathPrefix)}%`)
     }
 
     if (options.cursor) {

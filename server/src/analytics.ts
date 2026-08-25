@@ -15,6 +15,8 @@ import type {
 import { getProjectMetadata } from './projects.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+const SESSION_INACTIVITY_MS = 30 * 60 * 1000
+const SESSION_MAX_LIFETIME_MS = 24 * 60 * 60 * 1000
 const DIRECT_LABEL = 'direct / none'
 const OWNED_HOSTS = new Set(['continental.com', 'www.continental.com'])
 const SEARCH_HOSTS = new Set(['google.com', 'www.google.com', 'bing.com', 'www.bing.com'])
@@ -44,16 +46,30 @@ const countDistinct = (values: Iterable<string>) => {
   return set.size
 }
 
-const formatBucketLabel = (date: Date, granularity: AnalyticsGranularity) => {
+const formatBucketLabel = (date: Date, granularity: AnalyticsGranularity, includeYear = false) => {
   if (granularity === 'month') {
-    return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(date)
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      ...(includeYear ? { year: 'numeric' as const } : {}),
+      timeZone: 'UTC',
+    }).format(date)
   }
 
   if (granularity === 'week') {
-    return `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date)} wk`
+    return `${new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      ...(includeYear ? { year: 'numeric' as const } : {}),
+      timeZone: 'UTC',
+    }).format(date)} wk`
   }
 
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date)
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' as const } : {}),
+    timeZone: 'UTC',
+  }).format(date)
 }
 
 const startOfUtcDay = (date: Date) => Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
@@ -115,11 +131,12 @@ const groupSessions = (events: StoredPulseEvent[]) => {
       continue
     }
 
-    const group = sessions.get(sessionId)
+    const sessionKey = `${event.projectId}\u0000${sessionId}`
+    const group = sessions.get(sessionKey)
     if (group) {
       group.push(event)
     } else {
-      sessions.set(sessionId, [event])
+      sessions.set(sessionKey, [event])
     }
   }
 
@@ -130,42 +147,81 @@ const summarizeSessions = (events: StoredPulseEvent[]) => {
   const sessions = groupSessions(events)
   const summaries = new Map<string, SessionSummary>()
 
-  for (const [sessionId, sessionEvents] of sessions.entries()) {
+  for (const [sessionKey, sessionEvents] of sessions.entries()) {
     const sorted = [...sessionEvents].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt))
-    let pageViews = 0
-    let engagementEvents = 0
-    let durationSeconds = 0
-    const pages: string[] = []
+    let segment: StoredPulseEvent[] = []
+    let segmentStartedAtMs = 0
+    let previousOccurredAtMs = 0
+    let segmentIndex = 0
 
-    for (let index = 0; index < sorted.length; index += 1) {
-      const current = sorted[index]
-      if (!current) {
-        continue
+    const flushSegment = () => {
+      if (!segment.length) {
+        return
       }
 
-      if (current.eventName === 'page_view') {
-        pageViews += 1
-        pages.push(current.page.path)
-      } else {
-        engagementEvents += 1
+      let pageViews = 0
+      let engagementEvents = 0
+      let durationSeconds = 0
+      const pages: string[] = []
+      let firstPageView: StoredPulseEvent | undefined
+
+      for (let index = 0; index < segment.length; index += 1) {
+        const current = segment[index]
+        if (!current) {
+          continue
+        }
+
+        if (current.eventName === 'page_view') {
+          pageViews += 1
+          pages.push(current.page.path)
+          firstPageView ||= current
+        } else {
+          engagementEvents += 1
+        }
+
+        const next = segment[index + 1]
+        if (!next) {
+          continue
+        }
+
+        const deltaSeconds = Math.max(0, Math.floor((Date.parse(next.occurredAt) - Date.parse(current.occurredAt)) / 1000))
+        durationSeconds += Math.min(deltaSeconds, SESSION_INACTIVITY_MS / 1000)
       }
 
-      const next = sorted[index + 1]
-      if (!next) {
-        continue
+      if (pageViews > 0) {
+        summaries.set(`${sessionKey}\u0000${segmentIndex}`, {
+          pageViews,
+          engagementEvents,
+          durationSeconds,
+          pages,
+          entryReferrer: normalizeReferrer(firstPageView?.page.referrer),
+        })
       }
 
-      const deltaSeconds = Math.max(0, Math.floor((Date.parse(next.occurredAt) - Date.parse(current.occurredAt)) / 1000))
-      durationSeconds += Math.min(deltaSeconds, 30 * 60)
+      segment = []
+      segmentIndex += 1
     }
 
-    summaries.set(sessionId, {
-      pageViews,
-      engagementEvents,
-      durationSeconds,
-      pages,
-      entryReferrer: normalizeReferrer(sorted[0]?.page.referrer),
-    })
+    for (const event of sorted) {
+      const occurredAtMs = Date.parse(event.occurredAt)
+      const startsNewSession = segment.length > 0 && (
+        occurredAtMs - previousOccurredAtMs >= SESSION_INACTIVITY_MS
+        || occurredAtMs - segmentStartedAtMs >= SESSION_MAX_LIFETIME_MS
+      )
+
+      if (startsNewSession) {
+        flushSegment()
+      }
+
+      if (!segment.length) {
+        segmentStartedAtMs = occurredAtMs
+      }
+
+      segment.push(event)
+      previousOccurredAtMs = occurredAtMs
+    }
+
+    flushSegment()
   }
 
   return summaries
@@ -212,6 +268,15 @@ export const filterEventsByRange = (events: StoredPulseEvent[], fromMs: number, 
     return projectId ? event.projectId === projectId : true
   })
 
+const nextSeriesBucket = (bucketMs: number, granularity: AnalyticsGranularity) => {
+  if (granularity === 'month') {
+    const date = new Date(bucketMs)
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
+  }
+
+  return bucketMs + (granularity === 'week' ? 7 : 1) * MS_PER_DAY
+}
+
 const buildSeries = (events: StoredPulseEvent[], range: AnalyticsRange): AnalyticsSeriesPoint[] => {
   const buckets = new Map<number, number>()
 
@@ -225,10 +290,22 @@ const buildSeries = (events: StoredPulseEvent[], range: AnalyticsRange): Analyti
     buckets.set(start, (buckets.get(start) || 0) + 1)
   }
 
+  const firstBucket = bucketStart(new Date(range.from), range.granularity)
+  const lastBucket = bucketStart(new Date(range.to), range.granularity)
+  for (let bucketMs = firstBucket; bucketMs <= lastBucket; bucketMs = nextSeriesBucket(bucketMs, range.granularity)) {
+    if (!buckets.has(bucketMs)) {
+      buckets.set(bucketMs, 0)
+    }
+  }
+
   return Array.from(buckets.entries())
     .sort(([a], [b]) => a - b)
     .map(([start, value]) => ({
-      label: formatBucketLabel(new Date(start), range.granularity),
+      label: formatBucketLabel(
+        new Date(start),
+        range.granularity,
+        new Date(range.from).getUTCFullYear() !== new Date(range.to).getUTCFullYear(),
+      ),
       value,
     }))
 }

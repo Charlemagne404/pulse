@@ -5,6 +5,9 @@
   var scriptData = script && script.dataset ? script.dataset : {}
   var queuedCommands = Array.isArray(global.pulse) ? global.pulse.slice() : []
   var memoryStorage = {}
+  var SESSION_INACTIVITY_MS = 30 * 60 * 1000
+  var SESSION_MAX_LIFETIME_MS = 24 * 60 * 60 * 1000
+  var VISITOR_ROTATION_MS = 24 * 60 * 60 * 1000
   var fallbackStorage = {
     getItem: function (key) { return memoryStorage[key] || null },
     setItem: function (key, value) { memoryStorage[key] = String(value) },
@@ -35,6 +38,19 @@
     }
   }
 
+  var getStorage = function getStorage(name) {
+    try {
+      return global[name] || fallbackStorage
+    } catch (error) {
+      return fallbackStorage
+    }
+  }
+
+  var getStorageKey = function getStorageKey(name) {
+    var projectKey = state.projectId ? encodeURIComponent(state.projectId) : 'default'
+    return 'pulse.' + name + '.' + projectKey
+  }
+
   var createId = function createId(prefix) {
     var uuid = global.crypto && typeof global.crypto.randomUUID === 'function'
       ? global.crypto.randomUUID()
@@ -43,29 +59,48 @@
   }
 
   var getSessionId = function getSessionId() {
-    if (state.sessionId) {
-      return state.sessionId
-    }
+    var storage = getStorage('sessionStorage')
+    var sessionKey = getStorageKey('sessionId')
+    var createdAtKey = sessionKey + '.createdAt'
+    var lastActivityAtKey = sessionKey + '.lastActivityAt'
+    var now = Date.now()
+    var stored = readStorage(storage, sessionKey)
+    var createdAt = Number(readStorage(storage, createdAtKey))
+    var lastActivityAt = Number(readStorage(storage, lastActivityAtKey))
+    var isFresh = Boolean(
+      stored &&
+      Number.isFinite(createdAt) &&
+      Number.isFinite(lastActivityAt) &&
+      now >= createdAt &&
+      now - createdAt < SESSION_MAX_LIFETIME_MS &&
+      now >= lastActivityAt &&
+      now - lastActivityAt < SESSION_INACTIVITY_MS,
+    )
 
-    var storage = global.sessionStorage || fallbackStorage
-    var stored = readStorage(storage, 'pulse.sessionId')
-    state.sessionId = stored || createId('session')
-    writeStorage(storage, 'pulse.sessionId', state.sessionId)
+    state.sessionId = isFresh ? stored : createId('session')
+    writeStorage(storage, sessionKey, state.sessionId)
+    writeStorage(storage, createdAtKey, isFresh ? String(createdAt) : String(now))
+    writeStorage(storage, lastActivityAtKey, String(now))
     return state.sessionId
   }
 
   var getVisitorKey = function getVisitorKey() {
-    if (state.visitorKey) {
-      return state.visitorKey
-    }
+    var storage = getStorage('localStorage')
+    var visitorKey = getStorageKey('visitorKey')
+    var createdAtKey = visitorKey + '.createdAt'
+    var now = Date.now()
+    var stored = readStorage(storage, visitorKey)
+    var storedAt = Number(readStorage(storage, createdAtKey))
+    var isFresh = Boolean(
+      stored &&
+      Number.isFinite(storedAt) &&
+      now >= storedAt &&
+      now - storedAt < VISITOR_ROTATION_MS,
+    )
 
-    var storage = global.localStorage || fallbackStorage
-    var stored = readStorage(storage, 'pulse.visitorKey')
-    var storedAt = Number(readStorage(storage, 'pulse.visitorKey.createdAt'))
-    var isFresh = stored && Number.isFinite(storedAt) && Date.now() - storedAt < 24 * 60 * 60 * 1000
     state.visitorKey = isFresh ? stored : createId('visitor')
-    writeStorage(storage, 'pulse.visitorKey', state.visitorKey)
-    writeStorage(storage, 'pulse.visitorKey.createdAt', String(Date.now()))
+    writeStorage(storage, visitorKey, state.visitorKey)
+    writeStorage(storage, createdAtKey, isFresh ? String(storedAt) : String(now))
     return state.visitorKey
   }
 
@@ -153,8 +188,13 @@
 
   var init = function init(config) {
     var options = config || {}
+    var nextProjectId = String(options.projectId || scriptData.project || '')
+    if (state.projectId !== nextProjectId) {
+      state.sessionId = null
+      state.visitorKey = null
+    }
     state.initialized = true
-    state.projectId = String(options.projectId || scriptData.project || '')
+    state.projectId = nextProjectId
     state.collectUrl = String(options.collectUrl || scriptData.collect || state.collectUrl)
     state.consentMode = options.consentDefault === 'standard' ? 'standard' : 'strict'
     var requestedConsentState = options.consentState

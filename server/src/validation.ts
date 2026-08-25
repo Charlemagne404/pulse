@@ -15,9 +15,37 @@ const EVENT_NAME_PATTERN = /^[a-z][a-z0-9_]{1,63}$/
 const PROPERTY_KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
 const ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-const PHONE_PATTERN = /\+?\d[\d\s().-]{7,}\d/
+const PHONE_PATTERN = /(?:\+\d[\d\s().-]{7,}\d|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b|\b\d{2,4}(?:[\s.-]\d{2,4}){3,4}\b)/
 const MAX_TEXT_LENGTH = 255
 const MAX_PROPERTY_COUNT = 20
+const REDACTED_VALUE = '[redacted]'
+const SENSITIVE_KEY_NAMES = new Set([
+  'email',
+  'emailaddress',
+  'phone',
+  'phonenumber',
+  'mobile',
+  'mobilephone',
+  'mobilenumber',
+  'fullname',
+  'firstname',
+  'lastname',
+  'address',
+  'streetaddress',
+  'postalcode',
+  'message',
+  'body',
+  'comments',
+  'freeform',
+  'token',
+  'password',
+  'secret',
+  'authorization',
+  'cardnumber',
+  'payment',
+  'iban',
+  'ssn',
+])
 const CONSENT_STATES = new Set<ConsentState>(['unknown', 'denied', 'granted'])
 const CONSENT_MODES = new Set<ConsentMode>(['strict', 'standard'])
 const DEVICE_TYPES = new Set<DeviceType>(['desktop', 'mobile', 'tablet', 'bot', 'unknown'])
@@ -32,6 +60,9 @@ const readTrimmedString = (value: unknown) => (typeof value === 'string' ? value
 
 const hasPiiPattern = (value: string) => EMAIL_PATTERN.test(value) || PHONE_PATTERN.test(value)
 
+const isIsoTimestamp = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+
 const sanitizePath = (value: string) => {
   const trimmed = value.trim()
   if (!trimmed) {
@@ -40,7 +71,8 @@ const sanitizePath = (value: string) => {
 
   try {
     const url = new URL(trimmed)
-    return url.pathname || '/'
+    const pathname = url.pathname || '/'
+    return pathname.startsWith('/') ? pathname : ''
   } catch {
     const withoutHash = trimmed.split('#', 1)[0] || ''
     const withoutQuery = withoutHash.split('?', 1)[0] || ''
@@ -81,6 +113,46 @@ const sanitizeScalar = (value: unknown): Scalar | undefined => {
 
   return undefined
 }
+
+const isSensitiveKey = (key: string) => SENSITIVE_KEY_NAMES.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''))
+
+const redactValue = (value: unknown, key = '', depth = 0): unknown => {
+  if (isSensitiveKey(key)) {
+    return REDACTED_VALUE
+  }
+
+  if (typeof value === 'string') {
+    if (hasPiiPattern(value) || value.length > MAX_TEXT_LENGTH) {
+      return REDACTED_VALUE
+    }
+
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    if (depth >= 6) {
+      return REDACTED_VALUE
+    }
+
+    return value.slice(0, MAX_PROPERTY_COUNT).map((item) => redactValue(item, key, depth + 1))
+  }
+
+  if (isPlainObject(value)) {
+    if (depth >= 6) {
+      return REDACTED_VALUE
+    }
+
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, MAX_PROPERTY_COUNT)
+        .map(([entryKey, entryValue]) => [entryKey, redactValue(entryValue, entryKey, depth + 1)]),
+    )
+  }
+
+  return value === null || typeof value === 'number' || typeof value === 'boolean' ? value : REDACTED_VALUE
+}
+
+export const redactPayloadForStorage = (value: unknown) => redactValue(value)
 
 const sanitizeProperties = (value: unknown) => {
   if (value === undefined) {
@@ -248,7 +320,7 @@ export const validateEvent = (input: unknown, config: CollectorConfig): Validati
   }
 
   const occurredAt = readTrimmedString(event.occurredAt)
-  if (!occurredAt || Number.isNaN(Date.parse(occurredAt))) {
+  if (!occurredAt || !isIsoTimestamp(occurredAt) || Number.isNaN(Date.parse(occurredAt))) {
     return failure('occurredAt must be a valid ISO timestamp', 'occurredAt')
   }
 
@@ -259,6 +331,10 @@ export const validateEvent = (input: unknown, config: CollectorConfig): Validati
   const path = sanitizePath(readTrimmedString(event.page.path))
   if (!path) {
     return failure('page.path must be a path or URL', 'page.path')
+  }
+
+  if (hasPiiPattern(path)) {
+    return failure('page.path appears to contain personal data', 'page.path')
   }
 
   const title = readTrimmedString(event.page.title)

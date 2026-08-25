@@ -49,6 +49,7 @@ export function DonutChart({ segments }: DonutChartProps) {
           strokeDasharray={`${segment.length} ${CIRCUMFERENCE - segment.length}`}
           strokeDashoffset={segment.dashOffset}
           strokeLinecap="round"
+          className="donut-segment"
           transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
         />
       ))}

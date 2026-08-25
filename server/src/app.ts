@@ -10,7 +10,7 @@ import type {
   StoredPulseEvent,
   WorkspaceRole,
 } from './types.js'
-import { validateEvent } from './validation.js'
+import { redactPayloadForStorage, validateEvent } from './validation.js'
 
 const buildJsonHeaders = (corsOrigin: string | null) =>
   ({
@@ -176,30 +176,32 @@ const buildRejectionRecord = (
   },
   projectOwnership: Map<string, { ownerAccountId: string }>,
 ) => {
-  const projectId = readNestedOptionalString(candidate, ['projectId'])
-  const project = projectId ? projectOwnership.get(projectId) : null
-  const occurredAt = readNestedOptionalString(candidate, ['occurredAt'])
+  const rawProjectId = readNestedOptionalString(candidate, ['projectId'])
+  const project = rawProjectId ? projectOwnership.get(rawProjectId) : null
+  const safeCandidate = redactPayloadForStorage(candidate)
+  const projectId = readNestedOptionalString(safeCandidate, ['projectId'])
+  const occurredAt = readNestedOptionalString(safeCandidate, ['occurredAt'])
   const occurredAtMs = occurredAt ? Date.parse(occurredAt) : Number.NaN
 
   return {
     accountId: project?.ownerAccountId || '',
     receivedAt,
     receivedAtMs: Date.parse(receivedAt),
-    eventId: readNestedOptionalString(candidate, ['eventId']),
-    eventName: readNestedOptionalString(candidate, ['eventName']),
+    eventId: readNestedOptionalString(safeCandidate, ['eventId']),
+    eventName: readNestedOptionalString(safeCandidate, ['eventName']),
     projectId,
     occurredAt,
     occurredAtMs: Number.isFinite(occurredAtMs) ? occurredAtMs : null,
-    path: readNestedOptionalString(candidate, ['page', 'path']),
-    deviceType: readNestedOptionalString(candidate, ['context', 'deviceType']),
-    browserName: readNestedOptionalString(candidate, ['context', 'browserName']),
-    countryCode: readNestedOptionalString(candidate, ['context', 'countryCode']),
-    consentState: readNestedOptionalString(candidate, ['consent', 'state']),
-    consentMode: readNestedOptionalString(candidate, ['consent', 'mode']),
+    path: readNestedOptionalString(safeCandidate, ['page', 'path']),
+    deviceType: readNestedOptionalString(safeCandidate, ['context', 'deviceType']),
+    browserName: readNestedOptionalString(safeCandidate, ['context', 'browserName']),
+    countryCode: readNestedOptionalString(safeCandidate, ['context', 'countryCode']),
+    consentState: readNestedOptionalString(safeCandidate, ['consent', 'state']),
+    consentMode: readNestedOptionalString(safeCandidate, ['consent', 'mode']),
     reason: result.reason,
     field: result.field || null,
     requestIndex: index,
-    payloadJson: JSON.stringify(candidate),
+    payloadJson: JSON.stringify(safeCandidate) || 'null',
   }
 }
 
@@ -212,7 +214,7 @@ const normalizeProjectHost = (value: string, fallbackProjectId: string) => {
     const url = new URL(value.includes('://') ? value : `https://${value}`)
     return url.host || fallbackProjectId
   } catch {
-    return value.replace(/^\/+|\/+$/g, '') || fallbackProjectId
+    return fallbackProjectId
   }
 }
 
@@ -227,12 +229,20 @@ const parseCreateProjectBody = (body: Record<string, unknown>) => {
     throw badRequest('Project name is required.')
   }
 
+  if (projectName.length > 120) {
+    throw badRequest('Project name must be 120 characters or fewer.')
+  }
+
   if (!PROJECT_ID_PATTERN.test(projectId)) {
     throw badRequest('projectId must be lowercase letters, numbers, and hyphens only.')
   }
 
   if (integrationPreset !== 'website' && integrationPreset !== 'spa') {
     throw badRequest('integrationPreset must be either "website" or "spa".')
+  }
+
+  if (domain.length > 255) {
+    throw badRequest('domain must be 255 characters or fewer.')
   }
 
   return {

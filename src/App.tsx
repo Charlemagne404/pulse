@@ -30,6 +30,67 @@ function ScrollManager() {
   return null
 }
 
+function MotionSystem() {
+  const location = useLocation()
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('motion-ready')
+
+    const targets = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.landing-frame > *, .app-frame > *, .page-content > *, .docs-stage > *, .docs-sidebar > *',
+      ),
+    )
+
+    targets.forEach((target, index) => {
+      target.classList.add('motion-reveal')
+      target.style.setProperty('--motion-index', String(Math.min(index, 8)))
+    })
+
+    const reveal = (target: HTMLElement) => {
+      target.classList.add('is-visible')
+    }
+
+    if (!('IntersectionObserver' in window)) {
+      targets.forEach(reveal)
+      return () => {
+        targets.forEach((target) => {
+          target.classList.remove('motion-reveal', 'is-visible')
+          target.style.removeProperty('--motion-index')
+        })
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) {
+            return
+          }
+
+          const target = entry.target as HTMLElement
+          reveal(target)
+          observer.unobserve(target)
+        })
+      },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0 },
+    )
+
+    targets.forEach((target) => observer.observe(target))
+
+    return () => {
+      observer.disconnect()
+      targets.forEach((target) => {
+        target.classList.remove('motion-reveal', 'is-visible')
+        target.style.removeProperty('--motion-index')
+      })
+    }
+  }, [location.pathname])
+
+  return null
+}
+
 function ExternalRedirect({ href }: { href: string }) {
   useEffect(() => {
     window.location.replace(href)
@@ -43,6 +104,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ScrollManager />
+        <MotionSystem />
         <SeoManager />
         <Routes>
           <Route path="/" element={<HomePage />} />

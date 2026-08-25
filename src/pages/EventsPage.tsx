@@ -45,8 +45,14 @@ const createInitialFilters = (): EventFilters => ({
   toDate: buildDefaultDate(0),
 })
 
-const buildRangeIso = (date: string, endOfDay: boolean) =>
-  new Date(`${date}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`).toISOString()
+const buildRangeIso = (date: string, endOfDay: boolean) => {
+  if (!date) {
+    return ''
+  }
+
+  const parsed = new Date(`${date}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`)
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString()
+}
 
 const serializeFilters = (filters: EventFilters) => JSON.stringify(filters)
 

@@ -349,8 +349,10 @@ test('projects and analytics stay scoped to the owning account', async () => {
     )
     assert.equal(ownerOverviewResponse.status, 200)
     const ownerOverview = (await ownerOverviewResponse.json()) as {
+      project: { projectName: string }
       metrics: Array<{ key: string; value: number }>
     }
+    assert.equal(ownerOverview.project.projectName, 'My Site')
     assert.equal(ownerOverview.metrics.find((metric) => metric.key === 'page_views')?.value, 1)
 
     const otherOverviewResponse = await fetch(
@@ -623,6 +625,12 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
     assert.equal(secondPage.rows[0]?.path, '/docs/install')
     assert.equal(secondPage.page.hasMore, false)
 
+    const invalidCursorResponse = await fetch(
+      `${baseUrl}/v1/analytics/events/recent?projectId=aegis&cursor=not-a-valid-cursor&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(invalidCursorResponse.status, 400)
+
     const filteredResponse = await fetch(
       `${baseUrl}/v1/analytics/events/recent?projectId=aegis&deviceType=mobile&countryCode=DE&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
       { headers: authHeaders() },
@@ -636,6 +644,129 @@ test('recent events pagination and filtering work with cursor-based reads', asyn
     assert.equal(filtered.rows[0]?.path, '/docs/api')
     assert.equal(filtered.rows[0]?.countryCode, 'DE')
     assert.equal(filtered.rows[0]?.deviceType, 'mobile')
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('analytics keeps project sessions separate, respects session boundaries, and fills empty series buckets', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(createConfig(dir))
+
+  try {
+    await bootstrapWorkspace(baseUrl)
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'event_a_day1_first_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/home', referrer: 'https://google.com/search' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_shared_0001', visitorKey: 'visitor_a_0001' },
+          },
+          {
+            eventId: 'event_a_day1_click_0001',
+            eventName: 'button_click',
+            occurredAt: '2026-05-17T10:10:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/home' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_shared_0001', visitorKey: 'visitor_a_0001' },
+            properties: { button: 'learn_more' },
+          },
+          {
+            eventId: 'event_a_day1_second_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:20:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/docs' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_shared_0001', visitorKey: 'visitor_a_0001' },
+          },
+          {
+            eventId: 'event_a_day1_new_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T11:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/pricing' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_shared_0001', visitorKey: 'visitor_a_0001' },
+          },
+          {
+            eventId: 'event_a_custom_only_0001',
+            eventName: 'button_click',
+            occurredAt: '2026-05-17T12:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/pricing', referrer: 'https://spam.example/' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_custom_only_0001', visitorKey: 'visitor_custom_0001' },
+            properties: { button: 'signup' },
+          },
+          {
+            eventId: 'event_other_project_0001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-17T10:05:00.000Z',
+            projectId: 'contitech',
+            page: { path: '/fleet' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_shared_0001', visitorKey: 'visitor_a_0001' },
+          },
+          {
+            eventId: 'event_a_day3_0000001',
+            eventName: 'page_view',
+            occurredAt: '2026-05-19T10:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/later' },
+            consent: { state: 'granted', mode: 'standard' },
+            identity: { sessionId: 'session_later_0001', visitorKey: 'visitor_a_0002' },
+          },
+        ],
+      }),
+    })
+    assert.equal(collectResponse.status, 202)
+
+    const projectOverviewResponse = await fetch(
+      `${baseUrl}/v1/analytics/projects/aegis/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-19T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(projectOverviewResponse.status, 200)
+    const projectOverview = (await projectOverviewResponse.json()) as {
+      metrics: Array<{ key: string; value: number }>
+      series: Array<{ value: number }>
+    }
+    assert.equal(projectOverview.metrics.find((metric) => metric.key === 'bounce_rate')?.value, 66.7)
+    assert.equal(projectOverview.metrics.find((metric) => metric.key === 'avg_engagement_time')?.value, 400)
+    assert.deepEqual(projectOverview.series.map((point) => point.value), [3, 0, 1])
+
+    const workspaceOverviewResponse = await fetch(
+      `${baseUrl}/v1/analytics/overview?from=2026-05-17T00:00:00.000Z&to=2026-05-19T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(workspaceOverviewResponse.status, 200)
+    const workspaceOverview = (await workspaceOverviewResponse.json()) as {
+      metrics: Array<{ key: string; value: number }>
+    }
+    assert.equal(workspaceOverview.metrics.find((metric) => metric.key === 'bounce_rate')?.value, 75)
+
+    const referrersResponse = await fetch(
+      `${baseUrl}/v1/analytics/reports/referrers?projectId=aegis&from=2026-05-17T00:00:00.000Z&to=2026-05-19T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(referrersResponse.status, 200)
+    const referrers = (await referrersResponse.json()) as {
+      trackedReferrers: number
+      searchLedVisits: number
+      rows: Array<{ label: string; value: number }>
+    }
+    assert.equal(referrers.trackedReferrers, 2)
+    assert.equal(referrers.searchLedVisits, 1)
+    assert.equal(referrers.rows.find((row) => row.label === 'google.com')?.value, 1)
+    assert.equal(referrers.rows.find((row) => row.label === 'direct / none')?.value, 2)
   } finally {
     await stopServer(server)
   }
@@ -730,6 +861,49 @@ test('project verification and event debug endpoints expose accepted payloads pl
     }
     assert.match(rejectedEvents.rows[0]?.reason || '', /consent/i)
     assert.equal(rejectedEvents.rows[0]?.payload.projectId, 'aegis')
+  } finally {
+    await stopServer(server)
+  }
+})
+
+test('collector redacts personal data from rejected event payloads', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pulse-server-test-'))
+  const { server, baseUrl } = await startServer(createConfig(dir))
+
+  try {
+    await bootstrapWorkspace(baseUrl)
+    const collectResponse = await fetch(`${baseUrl}/v1/collect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        events: [
+          {
+            eventId: 'event_rejected_pii_0001',
+            eventName: 'button_click',
+            occurredAt: '2026-05-17T10:00:00.000Z',
+            projectId: 'aegis',
+            page: { path: '/signup' },
+            consent: { state: 'granted', mode: 'standard' },
+            properties: { email: 'person@example.com', button: 'submit' },
+          },
+        ],
+      }),
+    })
+    assert.equal(collectResponse.status, 400)
+
+    const rejectedResponse = await fetch(
+      `${baseUrl}/v1/analytics/events/rejected?projectId=aegis&from=2026-05-17T00:00:00.000Z&to=2026-05-17T23:59:59.000Z`,
+      { headers: authHeaders() },
+    )
+    assert.equal(rejectedResponse.status, 200)
+    const rejected = (await rejectedResponse.json()) as {
+      rows: Array<{ payload: { properties: { email: string; button: string } }; reason: string }>
+    }
+    assert.equal(rejected.rows.length, 1)
+    assert.match(rejected.rows[0]?.reason || '', /personal data/i)
+    assert.equal(rejected.rows[0]?.payload.properties.email, '[redacted]')
+    assert.equal(rejected.rows[0]?.payload.properties.button, 'submit')
+    assert.doesNotMatch(JSON.stringify(rejected.rows[0]?.payload), /person@example\.com/i)
   } finally {
     await stopServer(server)
   }

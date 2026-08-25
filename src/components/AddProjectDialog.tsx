@@ -80,12 +80,7 @@ const parseDomain = (value: string) => {
 
 const resolveSiteHost = (value: string, fallbackProjectId: string) => {
   const parsed = parseDomain(value)
-  if (parsed) {
-    return parsed.host
-  }
-
-  const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
-  return trimmed || fallbackProjectId
+  return parsed?.host || fallbackProjectId
 }
 
 const toJsStringLiteral = (value: string) => JSON.stringify(value)
@@ -174,11 +169,11 @@ const buildNextJsInstallSnippet = (projectId: string, siteHost: string, pulseOri
     '      <body>',
     '        {children}',
     '        <Script',
-    `          src="${pulseOrigin}/pulse.js"`,
+    `          src={${toJsStringLiteral(`${pulseOrigin}/pulse.js`)}}`,
     '          strategy="afterInteractive"',
-    `          data-site="${siteHost}"`,
-    `          data-project="${projectId}"`,
-    `          data-collect="${pulseOrigin}/v1/collect"`,
+    `          data-site={${toJsStringLiteral(siteHost)}}`,
+    `          data-project={${toJsStringLiteral(projectId)}}`,
+    `          data-collect={${toJsStringLiteral(`${pulseOrigin}/v1/collect`)}}`,
     '        />',
     '        <Script id="pulse-init" strategy="afterInteractive">',
     '          {pulseInlineScript}',
@@ -203,11 +198,11 @@ const buildNuxtInstallSnippet = (projectId: string, siteHost: string, pulseOrigi
     'useHead({',
     '  script: [',
     '    {',
-    `      src: '${pulseOrigin}/pulse.js',`,
+    `      src: ${toJsStringLiteral(`${pulseOrigin}/pulse.js`)},`,
     '      defer: true,',
-    `      'data-site': '${siteHost}',`,
-    `      'data-project': '${projectId}',`,
-    `      'data-collect': '${pulseOrigin}/v1/collect',`,
+    `      'data-site': ${toJsStringLiteral(siteHost)},`,
+    `      'data-project': ${toJsStringLiteral(projectId)},`,
+    `      'data-collect': ${toJsStringLiteral(`${pulseOrigin}/v1/collect`)},`,
     "      tagPosition: 'head',",
     '    },',
     '    {',

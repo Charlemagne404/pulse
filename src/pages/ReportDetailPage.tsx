@@ -12,6 +12,9 @@ import {
   formatCount,
   getProjectFilterLabel,
 } from '../lib/analyticsUi'
+import { buildAnalyticsRangePresets } from '../lib/demoDates'
+
+const defaultAnalyticsRange = buildAnalyticsRangePresets()[0]
 
 interface ReportDetailPageProps {
   reportKey: keyof typeof reportDetails
@@ -26,14 +29,30 @@ export function ReportDetailPage({ reportKey }: ReportDetailPageProps) {
     `report:pages:${projectId || 'workspace'}`,
     (signal) =>
       reportKey === 'pages'
-        ? fetchPagesReport({ projectId: projectId || undefined }, signal)
+        ? fetchPagesReport(
+            {
+              projectId: projectId || undefined,
+              from: defaultAnalyticsRange.from,
+              to: defaultAnalyticsRange.to,
+              granularity: 'day',
+            },
+            signal,
+          )
         : Promise.resolve(null),
   )
   const referrersQuery = useAnalyticsQuery<ReferrersReportResponse | null>(
     `report:referrers:${projectId || 'workspace'}`,
     (signal) =>
       reportKey === 'referrers'
-        ? fetchReferrersReport({ projectId: projectId || undefined }, signal)
+        ? fetchReferrersReport(
+            {
+              projectId: projectId || undefined,
+              from: defaultAnalyticsRange.from,
+              to: defaultAnalyticsRange.to,
+              granularity: 'day',
+            },
+            signal,
+          )
         : Promise.resolve(null),
   )
   const activeQuery = reportKey === 'pages' ? pagesQuery : referrersQuery

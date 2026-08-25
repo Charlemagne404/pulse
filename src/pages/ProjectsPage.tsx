@@ -7,9 +7,11 @@ import { ProductShell } from '../components/ProductShell'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview, type AnalyticsMetric } from '../lib/analyticsApi'
 import { formatCount, formatMetricValue, formatTimestampLabel } from '../lib/analyticsUi'
+import { buildAnalyticsRangePresets } from '../lib/demoDates'
 import { deleteProject, fetchWorkspaceSettings } from '../lib/productApi'
 
 const getMetric = (metrics: AnalyticsMetric[], key: string) => metrics.find((metric) => metric.key === key)
+const defaultAnalyticsRange = buildAnalyticsRangePresets()[0]
 
 export function ProjectsPage() {
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
@@ -20,7 +22,15 @@ export function ProjectsPage() {
     const workspace = await fetchWorkspaceSettings(signal)
     const projects = await Promise.all(
       workspace.projects.map(async (project) => {
-        const overview = await fetchProjectOverview(project.projectId, {}, signal)
+        const overview = await fetchProjectOverview(
+          project.projectId,
+          {
+            from: defaultAnalyticsRange.from,
+            to: defaultAnalyticsRange.to,
+            granularity: 'day',
+          },
+          signal,
+        )
 
         return {
           ...project,

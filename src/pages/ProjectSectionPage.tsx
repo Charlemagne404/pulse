@@ -7,6 +7,7 @@ import { ProgressList, type ProgressItem } from '../components/ProgressList'
 import { useAnalyticsQuery } from '../hooks/useAnalyticsQuery'
 import { fetchProjectOverview } from '../lib/analyticsApi'
 import { formatCount, formatTimestampLabel, getProjectName } from '../lib/analyticsUi'
+import { buildAnalyticsRangePresets } from '../lib/demoDates'
 import { deleteProject, fetchWorkspaceSettings, type WorkspaceProjectSetting } from '../lib/productApi'
 
 interface ProjectSectionPageProps {
@@ -19,6 +20,7 @@ const sectionLabels = {
   conversions: 'Conversions',
   settings: 'Settings',
 } as const
+const defaultAnalyticsRange = buildAnalyticsRangePresets()[0]
 
 export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
   const { projectSlug = '' } = useParams()
@@ -28,7 +30,18 @@ export function ProjectSectionPage({ sectionKey }: ProjectSectionPageProps) {
   const usesLiveOverview = sectionKey === 'pages' || sectionKey === 'events' || sectionKey === 'conversions'
   const { data, error, isLoading, isRefreshing } = useAnalyticsQuery(
     `project-section:${projectSlug}:${sectionKey}`,
-    (signal) => (usesLiveOverview ? fetchProjectOverview(projectSlug, {}, signal) : Promise.resolve(null)),
+    (signal) =>
+      usesLiveOverview
+        ? fetchProjectOverview(
+            projectSlug,
+            {
+              from: defaultAnalyticsRange.from,
+              to: defaultAnalyticsRange.to,
+              granularity: 'day',
+            },
+            signal,
+          )
+        : Promise.resolve(null),
   )
   const settingsQuery = useAnalyticsQuery(
     `project-settings:${projectSlug}`,
